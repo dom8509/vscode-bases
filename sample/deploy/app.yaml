@@ -1,0 +1,4 @@
+# Deployment of the app
+name: app
+replicas: 3 # scaled up for the release
+image: ghcr.io/example/app:1.4.2

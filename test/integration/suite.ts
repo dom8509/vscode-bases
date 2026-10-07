@@ -1,0 +1,128 @@
+// Runs inside VS Code: checks what the unit tests cannot, namely the real
+// file search, the WorkspaceEdit path and the custom editor registration.
+
+import * as assert from "node:assert/strict";
+import * as vscode from "vscode";
+import { computeView, parseBase } from "../../src/core/base";
+import { applyPropertyEdits } from "../../src/host/edits";
+import { WorkspaceIndex } from "../../src/host/indexer";
+
+async function read(uri: vscode.Uri): Promise<string> {
+  return new TextDecoder().decode(await vscode.workspace.fs.readFile(uri));
+}
+
+async function waitFor(what: string, check: () => boolean | Promise<boolean>, ms = 5000): Promise<void> {
+  const until = Date.now() + ms;
+  while (Date.now() < until) {
+    if (await check()) return;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  throw new Error(`Timed out waiting for: ${what}`);
+}
+
+const tests: [string, (ws: vscode.Uri, index: WorkspaceIndex) => Promise<void>][] = [
+  [
+    "indexes every Markdown and YAML file",
+    async (_ws, index) => {
+      const paths = [...index.all()].map((r) => r.file.path).sort();
+      assert.deepEqual(paths, [
+        "deploy/app.yaml",
+        "deploy/worker.yml",
+        "notes/idea.md",
+        "notes/meeting.md",
+        "projects/alpha.md",
+        "projects/beta.md",
+        "projects/gamma.md",
+      ]);
+    },
+  ],
+  [
+    "computes the sample base",
+    async (ws, index) => {
+      const base = parseBase(await read(vscode.Uri.joinPath(ws, "projects.base")));
+      const view = computeView(base, index.all(), { viewIndex: 0, now: new Date(2026, 10, 15) });
+      assert.deepEqual(view.errors, []);
+      assert.deepEqual(view.rows.map((r) => r.path), ["projects/gamma.md", "projects/alpha.md"]);
+      assert.equal(view.rows[1]!.cells["formula.overdue"], "yes");
+    },
+  ],
+  [
+    "applies a bulk edit to files on disk and the index follows",
+    async (ws, index) => {
+      const alpha = vscode.Uri.joinPath(ws, "projects/alpha.md");
+      const idea = vscode.Uri.joinPath(ws, "notes/idea.md");
+      const app = vscode.Uri.joinPath(ws, "deploy/app.yaml");
+      const outcome = await applyPropertyEdits([alpha, idea, app], [{ kind: "set", key: "reviewed", value: true }]);
+      assert.deepEqual(outcome, { applied: true, changed: 3, failures: [] });
+
+      await waitFor("the edit saved to disk", async () => (await read(alpha)).includes("reviewed: true"));
+      assert.equal((await read(alpha)).split("---")[1], "\ntitle: Alpha\nstatus: open\npriority: 2\nowner: dom\ntags: [project, safety]\ndue: 2026-11-01\nreviewed: true\n");
+      assert.ok((await read(idea)).startsWith("---\nreviewed: true\n---\n# An idea"));
+      assert.equal(await read(app), "# Deployment of the app\nname: app\nreplicas: 3 # scaled up for the release\nimage: ghcr.io/example/app:1.4.2\nreviewed: true\n");
+      const dirty = vscode.workspace.textDocuments.filter((d) => d.isDirty).map((d) => d.uri.path);
+      assert.deepEqual(dirty, [], "a bulk edit leaves no unsaved files behind");
+
+      await waitFor("the index to pick up the edit", () => index.get(idea)?.properties.reviewed === true);
+    },
+  ],
+  [
+    "reports files it cannot edit and changes the rest",
+    async (ws) => {
+      const broken = vscode.Uri.joinPath(ws, "notes/multi.yaml");
+      await vscode.workspace.fs.writeFile(broken, new TextEncoder().encode("a: 1\n---\nb: 2\n"));
+      const beta = vscode.Uri.joinPath(ws, "projects/beta.md");
+      const outcome = await applyPropertyEdits([broken, beta], [{ kind: "rename", from: "owner", to: "assignee" }]);
+      assert.equal(outcome.changed, 1);
+      assert.match(outcome.failures[0]!, /notes\/multi.yaml: Multi-document/);
+      await waitFor("the rename saved", async () => (await read(beta)).includes("assignee: anna"));
+    },
+  ],
+  [
+    "does not save a file that held unsaved work before the edit",
+    async (ws) => {
+      const gamma = vscode.Uri.joinPath(ws, "projects/gamma.md");
+      const doc = await vscode.workspace.openTextDocument(gamma);
+      const pending = new vscode.WorkspaceEdit();
+      pending.insert(gamma, new vscode.Position(doc.lineCount - 1, 0), "Unsaved line.\n");
+      await vscode.workspace.applyEdit(pending);
+      assert.ok(doc.isDirty);
+
+      await applyPropertyEdits([gamma], [{ kind: "set", key: "status", value: "blocked" }]);
+      assert.ok(doc.isDirty, "still unsaved");
+      assert.ok(doc.getText().includes("status: blocked") && doc.getText().includes("Unsaved line."));
+      assert.ok((await read(gamma)).includes("status: in-progress"), "disk unchanged");
+      assert.ok(doc.getText().includes('title: "Gamma"   # working title'));
+    },
+  ],
+  [
+    "opens a .base file in the custom editor",
+    async (ws) => {
+      await vscode.commands.executeCommand("vscode.open", vscode.Uri.joinPath(ws, "everything.base"));
+      await waitFor("the custom editor tab", () => {
+        const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+        return input instanceof vscode.TabInputCustom && input.viewType === "bases.editor";
+      });
+    },
+  ],
+];
+
+export async function run(): Promise<void> {
+  const ws = vscode.workspace.workspaceFolders![0]!.uri;
+  // No Refactor Preview: nobody is there to confirm it.
+  await vscode.workspace.getConfiguration("bases").update("confirmBulkEdits", false, vscode.ConfigurationTarget.Global);
+  const index = new WorkspaceIndex();
+  await index.ensureReady();
+
+  let failed = 0;
+  for (const [name, test] of tests) {
+    try {
+      await test(ws, index);
+      console.log(`  ✓ ${name}`);
+    } catch (e) {
+      failed++;
+      console.log(`  ✗ ${name}\n    ${(e as Error).stack ?? e}`);
+    }
+  }
+  index.dispose();
+  if (failed > 0) throw new Error(`${failed} integration test(s) failed`);
+}

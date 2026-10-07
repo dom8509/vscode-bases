@@ -1,0 +1,106 @@
+{
+  "name": "vscode-bases",
+  "displayName": "Bases",
+  "description": "Obsidian-Bases-style workbench for the metadata of Markdown and YAML files in your workspace.",
+  "version": "0.1.0",
+  "publisher": "dom8509",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "bases.editor",
+        "displayName": "Base",
+        "selector": [
+          {
+            "filenamePattern": "*.base"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "commands": [
+      {
+        "command": "bases.newBase",
+        "title": "New Base",
+        "category": "Bases"
+      },
+      {
+        "command": "bases.openAsText",
+        "title": "Open Base as Text",
+        "category": "Bases"
+      }
+    ],
+    "languages": [
+      {
+        "id": "yaml",
+        "extensions": [
+          ".base"
+        ]
+      }
+    ],
+    "configuration": {
+      "title": "Bases",
+      "properties": {
+        "bases.include": {
+          "type": "string",
+          "default": "**/*.{md,markdown,yml,yaml}",
+          "description": "Glob of the files a base indexes."
+        },
+        "bases.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "**/node_modules/**",
+            "**/.git/**"
+          ],
+          "description": "Globs excluded from indexing, in addition to `files.exclude`."
+        },
+        "bases.confirmBulkEdits": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the Refactor Preview before an edit that touches more than one file."
+        }
+      }
+    },
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "bases.newBase",
+          "when": "explorerResourceIsFolder",
+          "group": "navigation@9"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm test && npm run build",
+    "package": "npm run check && vsce package",
+    "test:integration": "node esbuild.mjs --tests && node dist/test/run.js"
+  },
+  "dependencies": {
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "~1.95.0",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.28.2",
+    "typescript": "~5.9.3",
+    "vitest": "^5.0.3"
+  }
+}

@@ -1,0 +1,182 @@
+body {
+  padding: 0;
+  margin: 0;
+  color: var(--vscode-foreground);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.toolbar,
+.bulk {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.bulk {
+  background: var(--vscode-editorWidget-background);
+}
+
+.tabs {
+  display: flex;
+  gap: 2px;
+  margin-right: auto;
+}
+
+button {
+  font: inherit;
+  padding: 3px 10px;
+  border: none;
+  border-radius: 2px;
+  cursor: pointer;
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+}
+
+button:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+button.secondary,
+button.tab {
+  color: var(--vscode-button-secondaryForeground);
+  background: var(--vscode-button-secondaryBackground);
+}
+
+button.tab.active {
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+}
+
+button.link {
+  background: none;
+  color: var(--vscode-textLink-foreground);
+}
+
+input {
+  font: inherit;
+  padding: 3px 6px;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: 2px;
+}
+
+input:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+}
+
+input.search {
+  width: 200px;
+}
+
+input.key {
+  width: 120px;
+}
+
+input.value {
+  width: 220px;
+}
+
+.count,
+.selection {
+  color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
+}
+
+.sep {
+  color: var(--vscode-descriptionForeground);
+}
+
+.banner {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.banner.error {
+  background: var(--vscode-inputValidation-errorBackground);
+}
+
+.banner.warn {
+  background: var(--vscode-inputValidation-warningBackground);
+}
+
+.banner.info {
+  background: var(--vscode-inputValidation-infoBackground);
+}
+
+.table-host {
+  overflow: auto;
+  flex: 1;
+}
+
+table {
+  border-collapse: collapse;
+  width: max-content;
+  min-width: 100%;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+th {
+  position: sticky;
+  top: 0;
+  cursor: pointer;
+  user-select: none;
+  font-weight: 600;
+  background: var(--vscode-editor-background);
+}
+
+th.check,
+td.check {
+  width: 20px;
+  cursor: default;
+}
+
+tr:hover td {
+  background: var(--vscode-list-hoverBackground);
+}
+
+tr.selected td {
+  background: var(--vscode-list-inactiveSelectionBackground);
+}
+
+td.file {
+  color: var(--vscode-textLink-foreground);
+  cursor: pointer;
+}
+
+td.editable {
+  cursor: text;
+}
+
+td.readonly {
+  color: var(--vscode-descriptionForeground);
+}
+
+td .cell-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.empty {
+  padding: 20px;
+  color: var(--vscode-descriptionForeground);
+}

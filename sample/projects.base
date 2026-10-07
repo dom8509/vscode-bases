@@ -1,0 +1,21 @@
+# Every project note, with the open ones first.
+filters:
+  and:
+    - file.hasTag("project")
+formulas:
+  overdue: 'if(due && date(due) < today() && status != "done", "yes", "")'
+properties:
+  formula.overdue:
+    displayName: Overdue
+views:
+  - type: table
+    name: Open
+    filters:
+      and:
+        - status != "done"
+    order: [file.name, title, status, priority, owner, due, formula.overdue]
+    sort:
+      - property: priority
+        direction: DESC
+  - type: table
+    name: All projects

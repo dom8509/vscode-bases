@@ -1,0 +1,9 @@
+# Every Markdown and YAML file in the workspace.
+views:
+  - type: table
+    name: Notes
+    filters: 'file.ext == "md"'
+  - type: table
+    name: Deployments
+    filters: 'file.inFolder("deploy")'
+    order: [file.name, name, replicas, image]
