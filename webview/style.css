@@ -284,6 +284,18 @@ select {
   margin-right: 8px;
 }
 
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 24px;
+}
+
+.panel-head button.back {
+  margin-left: -4px;
+  padding: 2px;
+}
+
 .popover > .panel-title,
 .popover > .row:nth-child(2) {
   padding-right: 24px;

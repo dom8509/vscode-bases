@@ -262,7 +262,15 @@ function viewPanel(): HTMLElement {
         ops({ op: "setView", index: i, key: "groupBy", value: v ? { property: v, direction: r.view.groupBy?.direction ?? "ASC" } : undefined })))]
     : [];
   return el("div", { class: "panel" },
-    el("div", { class: "panel-title" }, "View settings"),
+    el("div", { class: "panel-head" },
+      iconButton("arrowLeft", undefined, () => {
+        // Back to the list of views.
+        panel = undefined;
+        viewMenuOpen = true;
+        render();
+        app.querySelector<HTMLElement>(".view-item.active")?.focus();
+      }, "back", "Back to views"),
+      el("span", { class: "panel-title" }, "View settings")),
     el("label", { class: "field" }, el("span", {}, "Layout"), layout),
     ...groupBy,
     el("label", { class: "field" }, el("span", {}, "Name"), name),
