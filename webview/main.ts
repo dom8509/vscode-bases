@@ -157,7 +157,100 @@ function propertyOptions(extra: string[] = []): { value: string; label: string }
   return [
     ...props.map((p) => ({ value: p.id, label: propLabel(p) })),
     ...extra.filter((id) => !known.has(id)).map((id) => ({ value: id, label: id })),
-  ];
+  ].sort((a, b) => byName(a.value, b.value));
+}
+
+/** A to Z, ignoring case. */
+function byName(a: string, b: string): number {
+  return a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
+}
+
+// --- property picker: a dropdown with a search box ------------------------------
+
+/** The `data-key` of the picker whose list is open. */
+let openPicker: string | undefined;
+let pickerQuery = "";
+let pickerActive = 0;
+/** The open list, drawn over everything so a popover's scrolling does not cut it off. */
+let pickerMenu: HTMLElement | undefined;
+
+function closePicker(): void {
+  if (!openPicker) return;
+  openPicker = undefined;
+  render();
+}
+
+function propertyPicker(key: string, value: string, onChange: (v: string) => void): HTMLElement {
+  const options = propertyOptions([value]);
+  const current = options.find((o) => o.value === value);
+  const toggle = button("", () => {
+    openPicker = openPicker === key ? undefined : key;
+    pickerQuery = "";
+    pickerActive = 0;
+    render();
+    app.querySelector<HTMLInputElement>('input[data-key="picker-search"]')?.focus();
+  }, openPicker === key ? "picker-button open" : "picker-button", value);
+  toggle.dataset.key = key;
+  toggle.append(el("span", { class: "picker-label" }, current?.label ?? value), el("span", { class: "chevron" }, icon("chevronDown")));
+  if (openPicker !== key) return toggle;
+
+  const q = pickerQuery.trim().toLowerCase();
+  const shown = options.filter((o) => !q || o.value.toLowerCase().includes(q) || o.label.toLowerCase().includes(q));
+  pickerActive = Math.min(pickerActive, Math.max(0, shown.length - 1));
+  const choose = (v: string) => {
+    openPicker = undefined;
+    if (v === value) render();
+    else onChange(v);
+  };
+  const search = el("input", { type: "search", placeholder: "Search properties…", value: pickerQuery, class: "picker-search", "data-key": "picker-search" });
+  search.oninput = () => {
+    pickerQuery = search.value;
+    pickerActive = 0;
+    render();
+  };
+  search.onkeydown = (e) => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      pickerActive = (pickerActive + (e.key === "ArrowDown" ? 1 : -1) + shown.length) % Math.max(1, shown.length);
+      render();
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (shown[pickerActive]) choose(shown[pickerActive]!.value);
+    } else if (e.key === "Escape") {
+      // Closes only the list, not the window around it.
+      e.preventDefault();
+      closePicker();
+      app.querySelector<HTMLElement>(`[data-key="${key}"]`)?.focus();
+    }
+  };
+  const items = shown.map((o, i) => {
+    const item = el("div", { class: ["view-item", i === pickerActive ? "focused" : "", o.value === value ? "active" : ""].filter(Boolean).join(" "), role: "option", title: o.value },
+      el("span", { class: "view-label" }, o.label),
+      el("span", { class: "check" }, ...(o.value === value ? [icon("check")] : [])));
+    item.onmousedown = (e) => e.preventDefault();
+    item.onclick = (e) => {
+      e.stopPropagation();
+      choose(o.value);
+    };
+    return item;
+  });
+  pickerMenu = el("div", { class: "view-menu picker-menu", role: "listbox" }, search,
+    el("div", { class: "picker-list" }, ...(items.length ? items : [el("div", { class: "hint picker-empty" }, "No property matches")])));
+  return toggle;
+}
+
+/** Puts the open list right under its button. */
+function placePicker(): void {
+  const menu = app.querySelector<HTMLElement>(".picker-menu");
+  const anchor = openPicker && app.querySelector<HTMLElement>(`[data-key="${openPicker}"]`);
+  if (!menu || !anchor) return;
+  const r = anchor.getBoundingClientRect();
+  const margin = 8;
+  menu.style.minWidth = `${Math.max(220, r.width)}px`;
+  menu.style.left = `${Math.round(Math.max(margin, Math.min(r.left, window.innerWidth - margin - menu.offsetWidth)))}px`;
+  menu.style.top = `${Math.round(r.bottom + 2)}px`;
+  menu.style.maxHeight = `${Math.max(120, window.innerHeight - r.bottom - 2 - margin)}px`;
+  menu.querySelector(".view-item.focused")?.scrollIntoView({ block: "nearest" });
 }
 
 function uniqueName(base: string, taken: string[]): string {
@@ -467,7 +560,7 @@ function filterNode(scope: FilterScope, node: FilterNode, path: number[], depth:
   }
   const op = OPERATORS.find((o) => o.op === node.op)!;
   const row = el("div", { class: "row" },
-    select(`${key}-p`, propertyOptions([node.property]), node.property, (v) =>
+    propertyPicker(`${key}-p`, node.property, (v) =>
       updateFilter(scope, path, (n) => {
         const c = n as Extract<FilterNode, { kind: "cond" }>;
         // An operator that only fits the old property falls back to "is".
@@ -514,7 +607,8 @@ function propertiesPanel(): HTMLElement {
   const setOrder = (next: string[]) => ops({ op: "setView", index: r.viewIndex, key: "order", value: next });
   const q = propertySearch.trim().toLowerCase();
   const shown = order.map((id) => r.properties.find((p) => p.id === id) ?? { id, label: id, ns: "note" as const });
-  const hidden = r.properties.filter((p) => !order.includes(p.id));
+  // The shown ones keep their column order (drag to change it); the rest go A to Z.
+  const hidden = r.properties.filter((p) => !order.includes(p.id)).sort((a, b) => byName(a.id, b.id));
   const matchesQuery = (p: PropertyInfo) => !q || p.id.toLowerCase().includes(q) || p.label.toLowerCase().includes(q);
 
   const item = (p: PropertyInfo, visible: boolean) => {
@@ -977,6 +1071,43 @@ function toggle(uri: string, rows: Row[], range: boolean): void {
   lastClicked = uri;
 }
 
+/** A column header moves by drag and drop: it lands before or after the header it is dropped on. */
+function dragColumn(th: HTMLElement, id: string): void {
+  const r = result!;
+  th.draggable = true;
+  th.ondragstart = (e) => {
+    e.dataTransfer?.setData("application/x-bases-column", id);
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+    th.classList.add("dragging");
+  };
+  th.ondragend = () => th.classList.remove("dragging");
+  const after = (e: DragEvent) => {
+    const box = th.getBoundingClientRect();
+    return e.clientX > box.left + box.width / 2;
+  };
+  th.ondragover = (e) => {
+    if (!e.dataTransfer?.types.includes("application/x-bases-column")) return;
+    e.preventDefault();
+    th.classList.toggle("drop-after", after(e));
+    th.classList.toggle("drop-before", !after(e));
+  };
+  th.ondragleave = () => th.classList.remove("drop-before", "drop-after");
+  th.ondrop = (e) => {
+    th.classList.remove("drop-before", "drop-after");
+    const moved = e.dataTransfer?.getData("application/x-bases-column");
+    if (!moved || moved === id) return;
+    e.preventDefault();
+    // The columns are the view's order, one for one: move by place, as written in the file.
+    const order = r.view.order.length ? [...r.view.order] : ["file.name"];
+    const from = r.columns.findIndex((c) => c.id === moved);
+    const to = r.columns.findIndex((c) => c.id === id);
+    if (from < 0 || to < 0 || order.length !== r.columns.length) return;
+    const [entry] = order.splice(from, 1);
+    order.splice(to - (from < to ? 1 : 0) + (after(e) ? 1 : 0), 0, entry!);
+    if (order.join("\n") !== r.view.order.join("\n")) ops({ op: "setView", index: r.viewIndex, key: "order", value: order });
+  };
+}
+
 function table(): HTMLElement {
   const r = result!;
   const rows = r.rows;
@@ -996,6 +1127,7 @@ function table(): HTMLElement {
     const sorted = sort && sort.property === c.id;
     const th = el("th", { title: `${c.id} — click to sort` }, el("span", { class: "th-label" }, c.label), ...(sorted ? [icon(sort.direction === "DESC" ? "arrowDown" : "arrowUp", "sort-arrow")] : []));
     th.onclick = () => ops({ op: "setView", index: r.viewIndex, key: "sort", value: nextSort(c.id) });
+    dragColumn(th, c.id);
     head.append(th);
   }
 
@@ -1206,6 +1338,7 @@ function render(): void {
   }
 
   const parts: HTMLElement[] = [];
+  pickerMenu = undefined;
   if (result) {
     parts.push(toolbar());
   }
@@ -1220,8 +1353,11 @@ function render(): void {
     parts.push(el("div", { class: "table-host" }, content()));
     if (result.pageCount > 1 || result.matchCount > 25) parts.push(pager());
   }
+  if (pickerMenu) parts.push(pickerMenu);
+  else openPicker = undefined;
   app.replaceChildren(...parts);
   keepInView(app.querySelector<HTMLElement>(".popover"));
+  placePicker();
 
   for (const [key, value] of typed) {
     const input = app.querySelector<HTMLInputElement>(`input[data-key="${CSS.escape(key)}"]`);
@@ -1245,7 +1381,14 @@ function keepInView(pop: HTMLElement | null): void {
   if (shift) pop.style.transform = `translateX(${Math.round(shift)}px)`;
 }
 
-window.addEventListener("resize", () => keepInView(app.querySelector<HTMLElement>(".popover")));
+window.addEventListener("resize", () => {
+  keepInView(app.querySelector<HTMLElement>(".popover"));
+  placePicker();
+});
+// The list follows its button when the window around it scrolls.
+document.addEventListener("scroll", (e) => {
+  if (openPicker && !(e.target as HTMLElement).closest?.(".picker-menu")) placePicker();
+}, true);
 
 window.addEventListener("message", (event: MessageEvent<ToWebview>) => {
   const msg = event.data;
@@ -1283,7 +1426,11 @@ window.addEventListener("message", (event: MessageEvent<ToWebview>) => {
 document.addEventListener("mousedown", (e) => {
   const target = e.target as HTMLElement;
   if (viewMenuOpen && !target.closest(".view-switcher")) closeViewMenu();
-  if (panel && !target.closest(".anchor")) closePanel();
+  if (openPicker && !target.closest(".picker-menu") && !target.closest(`[data-key="${openPicker}"]`)) {
+    openPicker = undefined;
+    if (!panel || target.closest(".anchor")) render();
+  }
+  if (panel && !target.closest(".anchor") && !target.closest(".picker-menu")) closePanel();
   else if (viewSubmenu && !target.closest(".submenu-anchor")) {
     viewSubmenu = undefined;
     render();

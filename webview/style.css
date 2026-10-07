@@ -1117,3 +1117,82 @@ button.filter-section-head:hover {
 .popover.filter-panel {
   max-width: min(860px, calc(100vw - 16px));
 }
+
+/* --- property picker: a dropdown with a search box --- */
+
+button.picker-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 190px;
+  padding: 2px 6px;
+  color: var(--vscode-dropdown-foreground, var(--vscode-foreground));
+  border: 1px solid var(--vscode-dropdown-border, var(--vscode-panel-border));
+  border-radius: 2px;
+  background: var(--vscode-dropdown-background, transparent);
+}
+
+button.picker-button .picker-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+button.picker-button.open,
+button.picker-button:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+.view-menu.picker-menu {
+  position: fixed;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-sizing: border-box;
+  max-width: 360px;
+}
+
+.picker-menu input.picker-search {
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.picker-list {
+  overflow: auto;
+  min-height: 0;
+}
+
+.picker-list .view-item {
+  white-space: nowrap;
+}
+
+.picker-list .view-item.focused {
+  color: var(--vscode-menu-selectionForeground, var(--vscode-foreground));
+  background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground));
+}
+
+.picker-empty {
+  padding: 4px 6px;
+}
+
+/* --- table columns move by drag and drop --- */
+
+th[draggable="true"] {
+  cursor: grab;
+}
+
+th.dragging {
+  opacity: 0.5;
+}
+
+th.drop-before {
+  box-shadow: inset 2px 0 0 var(--vscode-focusBorder);
+}
+
+th.drop-after {
+  box-shadow: inset -2px 0 0 var(--vscode-focusBorder);
+}
