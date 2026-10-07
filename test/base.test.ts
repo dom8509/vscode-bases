@@ -240,3 +240,13 @@ views:
     expect(parseBase(text).views[0]!.groupBy).toBeUndefined();
   });
 });
+
+describe("kanban lanes", () => {
+  it("keeps the lane order written in groupBy", () => {
+    const text = updateBase("views:\n  - type: kanban\n    name: Board\n    groupBy:\n      property: status\n", [
+      { op: "setView", index: 0, key: "groupBy", value: { property: "status", direction: "ASC", order: ["open", "", "done"] } },
+    ]);
+    const view = computeView(parseBase(text), records, { viewIndex: 0 });
+    expect(view.view.groupBy).toEqual({ property: "status", direction: "ASC", order: ["open", "", "done"] });
+  });
+});

@@ -1032,16 +1032,28 @@ function laneValue(lane: string, g: Column): unknown {
   return lane;
 }
 
+// A lane being dragged, as opposed to a card.
+const LANE_TYPE = "application/x-bases-lane";
+
 function kanban(): HTMLElement {
   const r = result!;
   const g = r.group;
   if (!g) return el("p", { class: "empty" }, "Choose a property to group by in the view settings (the icon next to the view name).");
   const names = new Set([...(g.suggestions ?? []), ...r.rows.map((row) => laneOf(row.cells[g.id]))]);
   names.delete("");
+  if (r.rows.some((row) => laneOf(row.cells[g.id]) === "")) names.add("");
+  // Lanes put in order by hand come first, in that order; the others follow, sorted, and "No value" last.
+  const saved = r.view.groupBy?.order ?? [];
   const dir = r.view.groupBy?.direction === "DESC" ? -1 : 1;
-  const lanes = [...names].sort((a, b) => dir * a.localeCompare(b, undefined, { numeric: true }));
-  if (r.rows.some((row) => laneOf(row.cells[g.id]) === "")) lanes.push("");
+  const rank = (lane: string) => (saved.includes(lane) ? saved.indexOf(lane) : Number.MAX_SAFE_INTEGER);
+  const lanes = [...names].sort((a, b) => rank(a) - rank(b) || (a === "" ? 1 : 0) - (b === "" ? 1 : 0) || dir * a.localeCompare(b, undefined, { numeric: true }));
   const movable = g.editable;
+  const moveLane = (from: string, to: string) => {
+    const next = lanes.filter((l) => l !== from);
+    // Dropped on a lane to its right: after it; to its left: before it.
+    next.splice(next.indexOf(to) + (lanes.indexOf(from) < lanes.indexOf(to) ? 1 : 0), 0, from);
+    ops({ op: "setView", index: r.viewIndex, key: "groupBy", value: { ...r.view.groupBy!, order: next } });
+  };
 
   return el("div", { class: "board" }, ...lanes.map((lane) => {
     const rows = r.rows.filter((row) => laneOf(row.cells[g.id]) === lane);
@@ -1057,26 +1069,38 @@ function kanban(): HTMLElement {
       }
       return c;
     }));
-    const col = el("div", { class: "lane" },
-      el("div", { class: "lane-head" }, el("span", { class: lane ? "lane-name" : "lane-name none" }, lane || "No value"), el("span", { class: "lane-count" }, String(rows.length))),
-      body);
-    if (movable) {
-      col.ondragover = (e) => {
-        e.preventDefault();
-        col.classList.add("drop");
-      };
-      col.ondragleave = (e) => {
-        if (!col.contains(e.relatedTarget as Node)) col.classList.remove("drop");
-      };
-      col.ondrop = (e) => {
-        e.preventDefault();
-        col.classList.remove("drop");
-        const row = r.rows.find((x) => x.uri === e.dataTransfer?.getData("text/plain"));
-        if (!row || laneOf(row.cells[g.id]) === lane) return;
-        commitValue(row, g, laneValue(lane, g));
-        render();
-      };
-    }
+    const head = el("div", { class: "lane-head", draggable: "true", title: "Drag to move the column" },
+      el("span", { class: "lane-grip" }, icon("grip")),
+      el("span", { class: lane ? "lane-name" : "lane-name none" }, lane || "No value"), el("span", { class: "lane-count" }, String(rows.length)));
+    const col = el("div", { class: "lane" }, head, body);
+    head.ondragstart = (e) => {
+      e.stopPropagation();
+      e.dataTransfer?.setData(LANE_TYPE, lane);
+      col.classList.add("dragging");
+    };
+    head.ondragend = () => col.classList.remove("dragging");
+    const isLane = (e: DragEvent) => Boolean(e.dataTransfer?.types.includes(LANE_TYPE));
+    col.ondragover = (e) => {
+      if (!isLane(e) && !movable) return;
+      e.preventDefault();
+      col.classList.add(isLane(e) ? "lane-drop" : "drop");
+    };
+    col.ondragleave = (e) => {
+      if (!col.contains(e.relatedTarget as Node)) col.classList.remove("drop", "lane-drop");
+    };
+    col.ondrop = (e) => {
+      e.preventDefault();
+      col.classList.remove("drop", "lane-drop");
+      if (isLane(e)) {
+        const from = e.dataTransfer!.getData(LANE_TYPE);
+        if (from !== lane) moveLane(from, lane);
+        return;
+      }
+      const row = r.rows.find((x) => x.uri === e.dataTransfer?.getData("text/plain"));
+      if (!movable || !row || laneOf(row.cells[g.id]) === lane) return;
+      commitValue(row, g, laneValue(lane, g));
+      render();
+    };
     return col;
   }));
 }

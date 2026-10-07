@@ -24,7 +24,8 @@ at once.
 - **Layouts:** in the view settings, *Layout* shows a view as a **Table**,
   **Cards** (one card per file), a **List**, or a **Kanban** board. A board
   groups its cards by one property (*Group by*), one lane per value; drag a
-  card to another lane to change that value in its file. Cards and list
+  card to another lane to change that value in its file. Drag a lane by its
+  header to move it; the order is kept in the view (`groupBy.order`). Cards and list
   items have a checkbox for selecting, as the rows of the table do.
 - **Properties:** choose the columns, drag them into order, and add formulas
   (a name and an expression; the formula becomes a column).

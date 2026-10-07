@@ -929,6 +929,34 @@ ul.list {
   border-color: var(--vscode-focusBorder);
 }
 
+.lane.lane-drop {
+  border: 1px dashed var(--vscode-focusBorder);
+}
+
+.lane.dragging {
+  opacity: 0.5;
+}
+
+.lane-head {
+  cursor: grab;
+}
+
+.lane-grip {
+  display: inline-flex;
+  margin-left: -4px;
+  color: var(--vscode-descriptionForeground);
+  opacity: 0;
+}
+
+.lane-head:hover .lane-grip {
+  opacity: 1;
+}
+
+.lane-grip .svg-icon {
+  width: 14px;
+  height: 14px;
+}
+
 .lane-head {
   display: flex;
   align-items: center;

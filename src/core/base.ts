@@ -17,6 +17,8 @@ export interface SortSpec {
 export interface GroupBy {
   property: string;
   direction?: "ASC" | "DESC";
+  /** Lanes the person put in order (by dragging); "" is the lane without a value. Other lanes follow, sorted. */
+  order?: string[];
 }
 
 export interface ViewConfig {
@@ -276,7 +278,11 @@ export function computeView(base: BaseConfig, records: Iterable<FileRecord>, opt
   const refs = order.map(propertyRef);
   const rawGroup = typeof view.groupBy === "string" ? { property: view.groupBy } : view.groupBy;
   const groupBy: GroupBy | undefined = rawGroup && typeof rawGroup.property === "string" && rawGroup.property
-    ? { property: rawGroup.property, direction: String(rawGroup.direction).toUpperCase() === "DESC" ? "DESC" : "ASC" }
+    ? {
+      property: rawGroup.property,
+      direction: String(rawGroup.direction).toUpperCase() === "DESC" ? "DESC" : "ASC",
+      ...(Array.isArray(rawGroup.order) ? { order: rawGroup.order.map((x) => (x === null || x === undefined ? "" : String(x))) } : {}),
+    }
     : undefined;
   const groupRef = groupBy && propertyRef(groupBy.property);
   // The group's values travel with the cells, also when it is not a column.
