@@ -27,8 +27,9 @@ at once.
 - **Menus:** *Sort*, *Filter* and *Properties* open as small windows under
   their toolbar buttons, as in Obsidian. A click outside, the × at the top
   right, Escape, or the button again closes one.
-- **Search and pages:** the search box searches the cells of the current
-  view. The table shows 50 rows per page (`bases.pageSize`); the pager below
+- **Search and pages:** the search icon in the toolbar shows the search box
+  (hidden at first); it searches the cells of the current view. Escape or
+  the icon again hides it and ends the search. The table shows 50 rows per page (`bases.pageSize`); the pager below
   changes page and page size.
 - **Edit a value:** click a cell. The editor fits the column: a checkbox
   toggles with one click, numbers get a number field, dates a date picker,
@@ -38,7 +39,10 @@ at once.
   Clearing a value removes the property. A column's type comes from the
   values most of its files hold; `tags`, `aliases` and `cssclasses` are
   always lists.
-- **Edit many files:** tick rows (Shift-click for a range; the header box
+- **Edit many files at once:** tick rows, then change a cell in one of
+  them: a short question asks whether the new value goes to every selected
+  file or only to this one. That answer is the only one asked for.
+- **Or with the bulk bar:** tick rows (Shift-click for a range; the header box
   ticks the page, then *Select all* every matching file), then fill in
   *property* and *value* in the bar above the table and choose *Set*,
   *Remove* or *Rename*. With more than one file you are asked first

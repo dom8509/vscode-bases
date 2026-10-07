@@ -40,7 +40,8 @@ export type FromWebview =
   /** Changes to the .base file: views, filters, columns, sort, formulas. */
   | { type: "baseOps"; ops: BaseOp[] }
   | { type: "open"; uri: string }
-  | { type: "edit"; target: EditTarget; edits: UiEdit[] }
+  /** `confirmed`: the person already agreed in the table, so the host does not ask again. */
+  | { type: "edit"; target: EditTarget; edits: UiEdit[]; confirmed?: boolean }
   | { type: "openAsText" };
 
 export type { BaseOp, PropertyEdit, SortSpec, ViewResult };

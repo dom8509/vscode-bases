@@ -31,6 +31,8 @@ let noticeTimer: number | undefined;
 let panel: Panel;
 let filterScope: "view" | "base" = "view";
 let search = "";
+// The search box shows only when asked for, as in Obsidian.
+let searchOpen = false;
 let searchTimer: number | undefined;
 let propertySearch = "";
 // The selection: a set of files, or every file the view matches minus some.
@@ -502,6 +504,13 @@ function toolbar(): HTMLElement {
     clearTimeout(searchTimer);
     searchTimer = window.setTimeout(() => setUi({ query: search }), 200);
   };
+  searchBox.onkeydown = (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closeSearch();
+    }
+  };
+  const searchToggle = iconButton("search", undefined, () => (searchOpen ? closeSearch() : openSearch()), searchOpen || search ? "tool active" : "tool", searchOpen ? "Close search (Escape)" : "Search");
   return el("div", { class: "toolbar" },
     viewSwitcher(),
     el("span", { class: "count", title: indexing?.checking ? "Showing the cached index while checking files for changes" : undefined },
@@ -510,14 +519,32 @@ function toolbar(): HTMLElement {
     tool("sort", "sort", "Sort", r.sort.length, sortPanel),
     tool("filter", "filter", "Filter", filters, filterPanel),
     tool("properties", "properties", "Properties", 0, propertiesPanel),
-    el("label", { class: "search-box" }, icon("search"), searchBox),
+    ...(searchOpen ? [el("label", { class: "search-box" }, searchBox)] : []),
+    searchToggle,
     el("span", { class: "divider" }),
     iconButton("fileCode", undefined, () => send({ type: "openAsText" }), "tool", "Show source (YAML)"),
   );
 }
 
-function edit(target: EditTarget, edits: UiEdit[]): void {
-  send({ type: "edit", target, edits });
+function openSearch(): void {
+  searchOpen = true;
+  render();
+  app.querySelector<HTMLInputElement>('input[data-key="search"]')?.focus();
+}
+
+/** Hiding the search also ends it: what is hidden does not filter. */
+function closeSearch(): void {
+  searchOpen = false;
+  clearTimeout(searchTimer);
+  if (search) {
+    search = "";
+    setUi({ query: "" });
+  }
+  render();
+}
+
+function edit(target: EditTarget, edits: UiEdit[], confirmed = false): void {
+  send({ type: "edit", target, edits, confirmed });
 }
 
 function bulkBar(): HTMLElement {
@@ -587,11 +614,71 @@ function cellContent(c: Column, row: Row): (Node | string)[] {
   return [display(v)];
 }
 
-/** Shows the new value at once, then has the host write it. An empty value removes the property. */
-function commitValue(row: Row, c: Column, value: unknown): void {
+/** True when a change to this row's cell is meant for every selected row. */
+function editsSelection(row: Row): boolean {
+  return isSelected(row.uri) && selectionCount() > 1;
+}
+
+/**
+ * Shows the new value at once, then has the host write it. An empty value
+ * removes the property. In a selected row the change goes to every selected
+ * file, once the person says so in a short dialog.
+ */
+function commitValue(row: Row, c: Column, value: unknown, asYaml = false): void {
   const empty = isEmptyValue(value);
-  row.cells[c.id] = empty ? null : value;
-  edit({ uris: [row.uri] }, [empty ? { kind: "delete", key: c.id } : { kind: "setValue", key: c.id, value }]);
+  const change: UiEdit = empty ? { kind: "delete", key: c.id } : asYaml ? { kind: "set", key: c.id, input: String(value) } : { kind: "setValue", key: c.id, value };
+  if (!editsSelection(row)) {
+    row.cells[c.id] = empty ? null : value;
+    edit({ uris: [row.uri] }, [change]);
+    return;
+  }
+  const n = selectionCount();
+  const what = empty ? `Remove “${c.label}” from ${n} selected files?` : `Set “${c.label}” to ${display(value) || "this value"} in ${n} selected files?`;
+  void choose(what, [
+    { label: `Apply to ${n} files`, value: "all", primary: true },
+    { label: "Only this file", value: "one" },
+  ]).then((answer) => {
+    if (answer === "all") {
+      for (const r of result?.rows ?? []) if (isSelected(r.uri)) r.cells[c.id] = empty ? null : value;
+      // Confirmed here: the host does not ask a second time.
+      edit(selectionTarget(), [change], true);
+    } else if (answer === "one") {
+      row.cells[c.id] = empty ? null : value;
+      edit({ uris: [row.uri] }, [change]);
+    }
+    render();
+  });
+}
+
+/** A small modal question; resolves to the chosen value, or undefined on Cancel or Escape. */
+function choose(message: string, options: { label: string; value: string; primary?: boolean }[]): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    const before = document.activeElement as HTMLElement | null;
+    const close = (value: string | undefined) => {
+      overlay.remove();
+      before?.focus();
+      resolve(value);
+    };
+    const buttons = options.map((o) => button(o.label, () => close(o.value), o.primary ? "primary" : "secondary"));
+    const box = el("div", { class: "dialog", role: "dialog", "aria-modal": "true" },
+      el("p", {}, message),
+      el("div", { class: "dialog-buttons" }, ...buttons, button("Cancel", () => close(undefined), "secondary")),
+    );
+    const overlay = el("div", { class: "dialog-overlay" }, box);
+    overlay.onmousedown = (e) => {
+      if (e.target === overlay) close(undefined);
+    };
+    box.onkeydown = (e) => {
+      e.stopPropagation();
+      if (e.key === "Escape") {
+        e.preventDefault();
+        close(undefined);
+      }
+    };
+    // Outside #app, so a render underneath leaves it alone.
+    document.body.append(overlay);
+    buttons.find((_, i) => options[i]!.primary)?.focus();
+  });
 }
 
 function cellAt(rowIndex: number, colIndex: number): HTMLTableCellElement | null {
@@ -719,13 +806,10 @@ function startEdit(rowIndex: number, colIndex: number): void {
       const next = read();
       const before = c.type === "date" || c.type === "datetime" ? dateValue(original, c.type) : original;
       if (JSON.stringify(next ?? null) !== JSON.stringify(before ?? null) && !(isEmptyValue(next) && isEmptyValue(before))) {
-        if (c.type === "object") {
-          // Objects are typed as YAML and read by the host.
-          row.cells[c.id] = next;
-          edit({ uris: [row.uri] }, [isEmptyValue(next) ? { kind: "delete", key: c.id } : { kind: "set", key: c.id, input: String(next) }]);
-        } else {
-          commitValue(row, c, next);
-        }
+        // Objects are typed as YAML and read by the host.
+        commitValue(row, c, next, c.type === "object");
+        // The dialog takes the focus: no next cell to move to.
+        if (editsSelection(row)) move = undefined;
       }
     }
     td.classList.remove("editing");

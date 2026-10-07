@@ -149,7 +149,7 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
             await reopenWith(document.uri, "default");
             break;
           case "edit": {
-            const confirm = vscode.workspace.getConfiguration("bases").get<boolean>("confirmBulkEdits", true);
+            const confirm = !msg.confirmed && vscode.workspace.getConfiguration("bases").get<boolean>("confirmBulkEdits", true);
             const outcome = await applyPropertyEdits(await resolveTarget(msg.target), msg.edits.map(toPropertyEdit), { confirm });
             for (const f of outcome.failures) this.log.warn(`Not changed: ${f}`);
             if (outcome.failures.length > 0) {

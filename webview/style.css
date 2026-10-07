@@ -713,3 +713,38 @@ th .sort-arrow {
 .filter-group .row input:not(.expr) {
   width: 140px;
 }
+
+/* --- the short question before a change goes to every selected row --- */
+
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 15vh;
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.dialog {
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 14px 16px 12px;
+  border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border));
+  border-radius: 8px;
+  color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
+  background: var(--vscode-editorWidget-background);
+  box-shadow: 0 4px 16px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+  animation: pop-in 0.08s ease-out;
+}
+
+.dialog p {
+  margin: 0 0 12px;
+}
+
+.dialog-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
