@@ -22,6 +22,8 @@ export type BaseOp =
   | { op: "addView"; name: string }
   | { op: "duplicateView"; index: number; name: string }
   | { op: "removeView"; index: number }
+  /** Moves a view to another place; the first view is the one a base opens with. */
+  | { op: "moveView"; index: number; to: number }
   /** Sets a formula; with expr undefined, removes it (and its column from every view). */
   | { op: "setFormula"; name: string; expr: string | undefined };
 
@@ -101,6 +103,15 @@ function apply(doc: Document, op: BaseOp): void {
       if (views(doc).length <= 1) throw new Error("A base keeps at least one view");
       const seq = doc.get("views");
       if (isSeq(seq)) seq.items.splice(op.index, 1);
+      return;
+    }
+    case "moveView": {
+      const moved = view(doc, op.index);
+      const seq = doc.get("views");
+      if (isSeq(seq)) {
+        seq.items.splice(op.index, 1);
+        seq.items.splice(Math.max(0, Math.min(op.to, seq.items.length)), 0, moved);
+      }
       return;
     }
     case "setFormula": {

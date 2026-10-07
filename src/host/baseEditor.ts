@@ -115,6 +115,11 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
         if (op.op === "addView") ui.viewIndex = parseBase(document.getText()).views.length - 1;
         if (op.op === "duplicateView") ui.viewIndex = op.index + 1;
         if (op.op === "removeView" && op.index <= ui.viewIndex) ui.viewIndex = Math.max(0, ui.viewIndex - 1);
+        if (op.op === "moveView") {
+          if (op.index === ui.viewIndex) ui.viewIndex = op.to;
+          else if (op.index < ui.viewIndex && op.to >= ui.viewIndex) ui.viewIndex--;
+          else if (op.index > ui.viewIndex && op.to <= ui.viewIndex) ui.viewIndex++;
+        }
         if (op.op === "addView" || op.op === "duplicateView" || op.op === "removeView") ui.page = 0;
       }
       scheduleRender();

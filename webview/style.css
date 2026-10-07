@@ -990,3 +990,69 @@ ul.list {
   opacity: 0.5;
 }
 
+
+/* --- view settings: layout picker and "…" menu --- */
+
+.view-panel .panel-head {
+  padding-right: 52px;
+}
+
+.submenu-anchor {
+  position: relative;
+}
+
+.view-more {
+  position: absolute;
+  top: 6px;
+  right: 30px;
+}
+
+.view-panel .view-menu {
+  z-index: 30;
+}
+
+.view-menu.align-right {
+  left: auto;
+  right: 0;
+}
+
+button.layout-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 160px;
+  padding: 3px 6px;
+  color: var(--vscode-foreground);
+  border: 1px solid var(--vscode-dropdown-border, var(--vscode-panel-border));
+  border-radius: 4px;
+  background: var(--vscode-dropdown-background, transparent);
+}
+
+button.layout-button .view-label {
+  flex: 1;
+  text-align: left;
+}
+
+button.layout-button:hover,
+button.layout-button.open {
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-button-secondaryBackground));
+}
+
+.view-item.danger,
+.view-item.danger .view-icon {
+  color: var(--vscode-errorForeground);
+}
+
+.view-item.disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.view-item.disabled:hover {
+  background: transparent;
+}
+
+/* Its menus may reach past the bottom of the window. */
+.popover.view-panel {
+  overflow: visible;
+}

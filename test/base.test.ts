@@ -162,6 +162,8 @@ describe("editing a base", () => {
     expect(parseBase(out).views.map((v) => [v.name, v.limit])).toEqual([["Table", undefined], ["Renamed", 10], ["Copy", 10]]);
     out = updateBase(out, [{ op: "removeView", index: 0 }]);
     expect(parseBase(out).views.map((v) => v.name)).toEqual(["Renamed", "Copy"]);
+    out = updateBase(out, [{ op: "moveView", index: 1, to: 0 }]);
+    expect(parseBase(out).views.map((v) => v.name)).toEqual(["Copy", "Renamed"]);
     expect(() => updateBase(NEW_BASE, [{ op: "removeView", index: 0 }])).toThrow(/at least one view/);
   });
 

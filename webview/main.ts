@@ -175,6 +175,35 @@ const LAYOUTS = [
   { type: "kanban", label: "Kanban" },
 ] as const;
 let viewMenuOpen = false;
+/** A small menu open inside the view settings: the layout picker or the "…" menu. */
+let viewSubmenu: "layout" | "more" | undefined;
+
+/** A menu item in the look of the view menu. */
+function menuItem(name: IconName, label: string, onClick: () => void, opts: { checked?: boolean; disabled?: boolean; danger?: boolean; key: string }): HTMLElement {
+  const cls = ["view-item", opts.checked ? "active" : "", opts.disabled ? "disabled" : "", opts.danger ? "danger" : ""].filter(Boolean).join(" ");
+  const item = el("div", { class: cls, role: "menuitem", tabindex: opts.disabled ? "-1" : "0", "aria-disabled": opts.disabled ? "true" : undefined, "data-key": opts.key },
+    el("span", { class: "view-icon" }, icon(name)),
+    el("span", { class: "view-label" }, label),
+    ...(opts.checked !== undefined ? [el("span", { class: "check" }, ...(opts.checked ? [icon("check")] : []))] : []));
+  const run = () => {
+    if (opts.disabled) return;
+    viewSubmenu = undefined;
+    onClick();
+  };
+  item.onclick = (e) => {
+    e.stopPropagation();
+    run();
+  };
+  item.onkeydown = (e) => {
+    if (e.key === "Enter") run();
+  };
+  return item;
+}
+
+function toggleSubmenu(m: "layout" | "more"): void {
+  viewSubmenu = viewSubmenu === m ? undefined : m;
+  render();
+}
 
 function closeViewMenu(): void {
   if (!viewMenuOpen) return;
@@ -237,13 +266,8 @@ function viewPanel(): HTMLElement {
   const r = result!;
   const i = r.viewIndex;
   const name = textInput("view-name", r.view.name, (v) => v.trim() && ops({ op: "setView", index: i, key: "name", value: v.trim() }));
-  const remove = iconButton("trash", "Delete view", () => ops({ op: "removeView", index: i }), "danger");
-  remove.disabled = r.views.length <= 1;
-  const layout = select("view-layout", [
-    ...LAYOUTS.map((l) => ({ value: l.type as string, label: l.label })),
-    // A layout this extension does not draw (e.g. Obsidian's map) stays chosen; it shows as a table.
-    ...(LAYOUTS.some((l) => l.type === r.view.type) ? [] : [{ value: r.view.type, label: `${r.view.type} (shown as table)` }]),
-  ], r.view.type, (type) => {
+  const setLayout = (type: string) => {
+    if (type === r.view.type) return render();
     const change: BaseOp[] = [{ op: "setView", index: i, key: "type", value: type }];
     // A board needs something to group by: the first property that is not the file's.
     if (type === "kanban" && !r.view.groupBy) {
@@ -251,28 +275,52 @@ function viewPanel(): HTMLElement {
       if (first) change.push({ op: "setView", index: i, key: "groupBy", value: { property: first } });
     }
     ops(...change);
-  });
+  };
+  const layouts: { type: string; label: string }[] = [
+    ...LAYOUTS,
+    // A layout this extension does not draw (e.g. Obsidian's map) stays chosen; it shows as a table.
+    ...(LAYOUTS.some((l) => l.type === r.view.type) ? [] : [{ type: r.view.type, label: `${r.view.type} (shown as table)` }]),
+  ];
+  const current = layouts.find((l) => l.type === r.view.type)!;
+  const layoutButton = button("", () => toggleSubmenu("layout"), viewSubmenu === "layout" ? "layout-button open" : "layout-button", "Layout");
+  layoutButton.dataset.key = "view-layout";
+  layoutButton.append(el("span", { class: "view-icon" }, icon(VIEW_ICONS[current.type] ?? "table")), el("span", { class: "view-label" }, current.label), el("span", { class: "chevron" }, icon("chevronDown")));
+  const layout = el("div", { class: "submenu-anchor" }, layoutButton,
+    ...(viewSubmenu === "layout"
+      ? [el("div", { class: "view-menu", role: "menu" }, ...layouts.map((l) =>
+        menuItem(VIEW_ICONS[l.type] ?? "table", l.label, () => setLayout(l.type), { checked: l.type === r.view.type, key: `layout-${l.type}` })))]
+      : []));
+
+  const more = el("div", { class: "submenu-anchor view-more" },
+    iconButton("more", undefined, () => toggleSubmenu("more"), viewSubmenu === "more" ? "active" : "", "More view options"),
+    ...(viewSubmenu === "more"
+      ? [el("div", { class: "view-menu align-right", role: "menu" },
+        menuItem("star", i === 0 ? "Default view" : "Set as default view", () => ops({ op: "moveView", index: i, to: 0 }), { disabled: i === 0, key: "view-default" }),
+        menuItem("copy", "Duplicate view", () => ops({ op: "duplicateView", index: i, name: uniqueName(`${r.view.name} copy`, r.views.map((v) => v.name)) }), { key: "view-duplicate" }),
+        el("div", { class: "menu-sep" }),
+        menuItem("trash", "Delete view", () => ops({ op: "removeView", index: i }), { disabled: r.views.length <= 1, danger: true, key: "view-delete" }))]
+      : []));
+
   const groupBy = r.view.type === "kanban"
     ? [el("label", { class: "field" }, el("span", {}, "Group by"),
       select("view-group", [{ value: "", label: "—" }, ...propertyOptions(r.view.groupBy ? [r.view.groupBy.property] : [])], r.view.groupBy?.property ?? "", (v) =>
         ops({ op: "setView", index: i, key: "groupBy", value: v ? { property: v, direction: r.view.groupBy?.direction ?? "ASC" } : undefined })))]
     : [];
-  return el("div", { class: "panel" },
+  return el("div", { class: "panel view-panel" },
     el("div", { class: "panel-head" },
       iconButton("arrowLeft", undefined, () => {
         // Back to the list of views.
         panel = undefined;
+        viewSubmenu = undefined;
         viewMenuOpen = true;
         render();
         app.querySelector<HTMLElement>(".view-item.active")?.focus();
       }, "back", "Back to views"),
       el("span", { class: "panel-title" }, "View settings")),
-    el("label", { class: "field" }, el("span", {}, "Layout"), layout),
-    ...groupBy,
+    more,
     el("label", { class: "field" }, el("span", {}, "Name"), name),
-    el("div", { class: "row" },
-      iconButton("copy", "Duplicate view", () => ops({ op: "duplicateView", index: i, name: uniqueName(`${r.view.name} copy`, r.views.map((v) => v.name)) })),
-      remove),
+    el("div", { class: "field" }, el("span", {}, "Layout"), layout),
+    ...groupBy,
   );
 }
 
@@ -526,11 +574,13 @@ function propertiesPanel(): HTMLElement {
 
 function closePanel(): void {
   panel = undefined;
+  viewSubmenu = undefined;
   render();
 }
 
 function togglePanel(p: Panel): void {
   panel = panel === p ? undefined : p;
+  viewSubmenu = undefined;
   render();
 }
 
@@ -1219,10 +1269,18 @@ document.addEventListener("mousedown", (e) => {
   const target = e.target as HTMLElement;
   if (viewMenuOpen && !target.closest(".view-switcher")) closeViewMenu();
   if (panel && !target.closest(".anchor")) closePanel();
+  else if (viewSubmenu && !target.closest(".submenu-anchor")) {
+    viewSubmenu = undefined;
+    render();
+  }
 });
 // Escape closes an open panel, unless it is cancelling a cell edit or the view menu.
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && !e.defaultPrevented && !viewMenuOpen && panel) closePanel();
+  if (e.key !== "Escape" || e.defaultPrevented || viewMenuOpen) return;
+  if (viewSubmenu) {
+    viewSubmenu = undefined;
+    render();
+  } else if (panel) closePanel();
 });
 
 document.addEventListener("keydown", (e) => {
