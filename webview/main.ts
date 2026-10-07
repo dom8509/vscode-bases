@@ -13,6 +13,7 @@ import {
   type FilterNode,
   type Operator,
 } from "../src/core/filterModel";
+import { icon, type IconName } from "./icons";
 import type { BaseOp, EditTarget, FromWebview, IndexProgress, SortSpec, ToWebview, UiEdit, UiState, ViewResult } from "../src/protocol";
 
 declare function acquireVsCodeApi(): { postMessage(msg: FromWebview): void };
@@ -21,7 +22,7 @@ const send = (msg: FromWebview) => vscode.postMessage(msg);
 const ops = (...list: BaseOp[]) => send({ type: "baseOps", ops: list });
 const setUi = (state: Partial<UiState>) => send({ type: "ui", state });
 
-type Panel = "sort" | "filter" | "properties" | "view" | undefined;
+type Panel = "sort" | "filter" | "properties" | "view" | "results" | undefined;
 
 let result: ViewResult | undefined;
 let error: string | undefined;
@@ -30,6 +31,8 @@ let noticeTimer: number | undefined;
 let panel: Panel;
 let filterScope: "view" | "base" = "view";
 let search = "";
+// The search box shows only when asked for, as in Obsidian.
+let searchOpen = false;
 let searchTimer: number | undefined;
 let propertySearch = "";
 // The selection: a set of files, or every file the view matches minus some.
@@ -88,12 +91,19 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string,
   return node;
 }
 
-function button(label: string, onClick: () => void, cls = "secondary", title?: string): HTMLButtonElement {
-  const b = el("button", { class: cls, title }, label);
+function button(label: string | Node, onClick: () => void, cls = "secondary", title?: string): HTMLButtonElement {
+  const b = el("button", { class: cls, title, "aria-label": title }, label);
   b.onclick = (e) => {
     e.stopPropagation();
     onClick();
   };
+  return b;
+}
+
+/** A borderless button with an icon and, optionally, a label next to it. */
+function iconButton(name: IconName, label: string | undefined, onClick: () => void, cls = "", title?: string): HTMLButtonElement {
+  const b = button(icon(name), onClick, `clickable-icon ${cls}`.trim(), title ?? label);
+  if (label) b.append(el("span", { class: "label" }, label));
   return b;
 }
 
@@ -157,7 +167,13 @@ function uniqueName(base: string, taken: string[]): string {
 
 // --- views ------------------------------------------------------------------
 
-const VIEW_ICONS: Record<string, string> = { table: "▦", cards: "▤", list: "☰", map: "◎" };
+const VIEW_ICONS: Record<string, IconName> = { table: "table", cards: "cards", list: "list", kanban: "kanban", map: "map" };
+const LAYOUTS = [
+  { type: "table", label: "Table" },
+  { type: "cards", label: "Cards" },
+  { type: "list", label: "List" },
+  { type: "kanban", label: "Kanban" },
+] as const;
 let viewMenuOpen = false;
 
 function closeViewMenu(): void {
@@ -169,27 +185,29 @@ function closeViewMenu(): void {
 /** The view picker: a dropdown with the views, their settings, and "Add view", as in Obsidian. */
 function viewSwitcher(): HTMLElement {
   const r = result!;
-  const icon = (type: string) => el("span", { class: "view-icon" }, VIEW_ICONS[type] ?? "▦");
+  const viewIcon = (type: string) => el("span", { class: "view-icon" }, icon(VIEW_ICONS[type] ?? "table"));
   const toggle = button("", () => {
     viewMenuOpen = !viewMenuOpen;
+    if (viewMenuOpen) panel = undefined;
     render();
-  }, viewMenuOpen ? "view-button open" : "view-button", "Switch view");
-  toggle.append(icon(r.views[r.viewIndex]?.type ?? "table"), el("span", { class: "view-label" }, r.view.name), el("span", { class: "chevron" }, "▾"));
+  }, viewMenuOpen || panel === "view" ? "view-button open" : "view-button", "Switch view");
+  toggle.append(viewIcon(r.views[r.viewIndex]?.type ?? "table"), el("span", { class: "view-label" }, r.view.name), el("span", { class: "chevron" }, icon("chevronDown")));
 
-  const wrap = el("div", { class: "view-switcher" }, toggle);
+  const wrap = el("div", { class: "view-switcher anchor" }, toggle);
+  if (panel === "view") wrap.append(popover(viewPanel(), "left"));
   if (!viewMenuOpen) return wrap;
 
   const items = r.views.map((v, i) => {
     const item = el("div", { class: i === r.viewIndex ? "view-item active" : "view-item", role: "menuitem", tabindex: "0", "data-key": `view-item-${i}` },
-      icon(v.type),
+      viewIcon(v.type),
       el("span", { class: "view-label" }, v.name),
-      el("span", { class: "check" }, i === r.viewIndex ? "✓" : ""),
-      button("⚙", () => {
+      el("span", { class: "check" }, ...(i === r.viewIndex ? [icon("check")] : [])),
+      iconButton("settings", undefined, () => {
         viewMenuOpen = false;
         panel = "view";
         if (i === r.viewIndex) render();
         else setUi({ viewIndex: i });
-      }, "icon", "Configure view"),
+      }, "", "Configure view"),
     );
     const choose = () => {
       viewMenuOpen = false;
@@ -202,7 +220,7 @@ function viewSwitcher(): HTMLElement {
     };
     return item;
   });
-  const add = el("div", { class: "view-item add", role: "menuitem", tabindex: "0", "data-key": "view-item-add" }, el("span", { class: "view-icon" }, "+"), el("span", { class: "view-label" }, "Add view"));
+  const add = el("div", { class: "view-item add", role: "menuitem", tabindex: "0", "data-key": "view-item-add" }, el("span", { class: "view-icon" }, icon("plus")), el("span", { class: "view-label" }, "Add view"));
   add.onclick = () => {
     viewMenuOpen = false;
     panel = "view";
@@ -219,19 +237,68 @@ function viewPanel(): HTMLElement {
   const r = result!;
   const i = r.viewIndex;
   const name = textInput("view-name", r.view.name, (v) => v.trim() && ops({ op: "setView", index: i, key: "name", value: v.trim() }));
+  const remove = iconButton("trash", "Delete view", () => ops({ op: "removeView", index: i }), "danger");
+  remove.disabled = r.views.length <= 1;
+  const layout = select("view-layout", [
+    ...LAYOUTS.map((l) => ({ value: l.type as string, label: l.label })),
+    // A layout this extension does not draw (e.g. Obsidian's map) stays chosen; it shows as a table.
+    ...(LAYOUTS.some((l) => l.type === r.view.type) ? [] : [{ value: r.view.type, label: `${r.view.type} (shown as table)` }]),
+  ], r.view.type, (type) => {
+    const change: BaseOp[] = [{ op: "setView", index: i, key: "type", value: type }];
+    // A board needs something to group by: the first property that is not the file's.
+    if (type === "kanban" && !r.view.groupBy) {
+      const first = r.columns.find((c) => c.editable)?.id ?? r.propertyNames[0];
+      if (first) change.push({ op: "setView", index: i, key: "groupBy", value: { property: first } });
+    }
+    ops(...change);
+  });
+  const groupBy = r.view.type === "kanban"
+    ? [el("label", { class: "field" }, el("span", {}, "Group by"),
+      select("view-group", [{ value: "", label: "—" }, ...propertyOptions(r.view.groupBy ? [r.view.groupBy.property] : [])], r.view.groupBy?.property ?? "", (v) =>
+        ops({ op: "setView", index: i, key: "groupBy", value: v ? { property: v, direction: r.view.groupBy?.direction ?? "ASC" } : undefined })))]
+    : [];
+  return el("div", { class: "panel" },
+    el("div", { class: "panel-head" },
+      iconButton("arrowLeft", undefined, () => {
+        // Back to the list of views.
+        panel = undefined;
+        viewMenuOpen = true;
+        render();
+        app.querySelector<HTMLElement>(".view-item.active")?.focus();
+      }, "back", "Back to views"),
+      el("span", { class: "panel-title" }, "View settings")),
+    el("label", { class: "field" }, el("span", {}, "Layout"), layout),
+    ...groupBy,
+    el("label", { class: "field" }, el("span", {}, "Name"), name),
+    el("div", { class: "row" },
+      iconButton("copy", "Duplicate view", () => ops({ op: "duplicateView", index: i, name: uniqueName(`${r.view.name} copy`, r.views.map((v) => v.name)) })),
+      remove),
+  );
+}
+
+/** The window behind the result count: how many results the view shows at most. */
+function resultsPanel(): HTMLElement {
+  const r = result!;
+  const setLimit = (n: number | undefined) => ops({ op: "setView", index: r.viewIndex, key: "limit", value: n });
   const limit = textInput("view-limit", r.view.limit !== undefined ? String(r.view.limit) : "", (v) => {
     const n = Number.parseInt(v, 10);
-    ops({ op: "setView", index: i, key: "limit", value: Number.isFinite(n) && n > 0 ? n : undefined });
+    setLimit(Number.isFinite(n) && n > 0 ? n : undefined);
   }, { type: "number", min: "1", placeholder: "no limit", class: "narrow" });
-  const remove = button("Delete view", () => ops({ op: "removeView", index: i }), "danger");
-  remove.disabled = r.views.length <= 1;
+  const reset = iconButton("reset", "Reset limit", () => setLimit(undefined), "", "Show every matching file");
+  reset.disabled = r.view.limit === undefined;
+  const exportTo = (to: "clipboard" | "csv") => {
+    closePanel();
+    send({ type: "export", to });
+  };
   return el("div", { class: "panel" },
-    el("div", { class: "panel-title" }, "View"),
-    el("label", { class: "field" }, el("span", {}, "Name"), name),
-    el("label", { class: "field" }, el("span", {}, "Result limit"), limit),
-    el("div", { class: "row" },
-      button("Duplicate view", () => ops({ op: "duplicateView", index: i, name: uniqueName(`${r.view.name} copy`, r.views.map((v) => v.name)) })),
-      remove),
+    el("div", { class: "panel-title" }, "Results"),
+    el("label", { class: "field" }, el("span", {}, "Limit"), limit),
+    el("p", { class: "hint" }, r.view.limit !== undefined ? `Shows the first ${r.view.limit} of ${r.total.toLocaleString()} matching files.` : `All ${r.total.toLocaleString()} matching files.`),
+    el("div", { class: "menu-sep" }),
+    el("div", { class: "actions" },
+      reset,
+      iconButton("clipboard", "Copy to clipboard", () => exportTo("clipboard"), "", "Copy the rows and columns of this view (all pages), tab-separated"),
+      iconButton("download", "Export CSV", () => exportTo("csv"), "", "Save the rows and columns of this view (all pages) as a CSV file")),
   );
 }
 
@@ -251,14 +318,14 @@ function sortPanel(): HTMLElement {
     el("div", { class: "row" },
       select(`sort-p-${i}`, propertyOptions([s.property]), s.property, (v) => setSort(r.sort.map((x, j) => (j === i ? { ...x, property: v } : x)))),
       select(`sort-d-${i}`, [{ value: "ASC", label: "Ascending" }, { value: "DESC", label: "Descending" }], s.direction, (v) => setSort(r.sort.map((x, j) => (j === i ? { ...x, direction: v } : x)))),
-      button("×", () => setSort(r.sort.filter((_, j) => j !== i)), "icon", "Remove sort"),
+      iconButton("x", undefined, () => setSort(r.sort.filter((_, j) => j !== i)), "", "Remove sort"),
     ),
   );
   const unused = r.properties.find((p) => !r.sort.some((s) => s.property === p.id));
   return el("div", { class: "panel" },
     el("div", { class: "panel-title" }, "Sort"),
     ...(rows.length > 0 ? rows : [el("p", { class: "hint" }, "Not sorted: files appear by path.")]),
-    el("div", { class: "row" }, button("+ Add sort", () => setSort([...r.sort, { property: unused?.id ?? "file.name", direction: "ASC" }]), "link")),
+    el("div", { class: "row" }, iconButton("plus", "Add sort", () => setSort([...r.sort, { property: unused?.id ?? "file.name", direction: "ASC" }]), "add")),
   );
 }
 
@@ -324,20 +391,20 @@ function filterNode(node: FilterNode, path: number[], depth: number): HTMLElemen
     const head = el("div", { class: "row" },
       select(`${key}-conj`, CONJUNCTIONS.map((c) => ({ value: c.conj, label: c.label })), node.conj, (v: Conjunction) => updateFilter(path, (n) => ({ ...(n as FilterGroup), conj: v }))),
     );
-    if (depth > 0) head.append(button("×", () => updateFilter(path, () => null), "icon", "Remove group"));
+    if (depth > 0) head.append(iconButton("x", undefined, () => updateFilter(path, () => null), "", "Remove group"));
     return el("div", { class: depth > 0 ? "filter-group nested" : "filter-group" },
       head,
       ...node.children.map((c, i) => filterNode(c, [...path, i], depth + 1)),
       el("div", { class: "row" },
-        button("+ Add filter", () => updateFilter(path, (n) => ({ ...(n as FilterGroup), children: [...(n as FilterGroup).children, { kind: "cond", property: "file.name", op: "contains", value: "" }] })), "link"),
-        button("+ Add filter group", () => updateFilter(path, (n) => ({ ...(n as FilterGroup), children: [...(n as FilterGroup).children, { kind: "group", conj: "and", children: [] }] })), "link"),
+        iconButton("plus", "Add filter", () => updateFilter(path, (n) => ({ ...(n as FilterGroup), children: [...(n as FilterGroup).children, { kind: "cond", property: "file.name", op: "contains", value: "" }] })), "add"),
+        iconButton("plus", "Add filter group", () => updateFilter(path, (n) => ({ ...(n as FilterGroup), children: [...(n as FilterGroup).children, { kind: "group", conj: "and", children: [] }] })), "add"),
       ),
     );
   }
   if (node.kind === "expr") {
     return el("div", { class: "row" },
       textInput(`${key}-expr`, node.expr, (v) => updateFilter(path, () => ({ kind: "expr", expr: v })), { class: "expr", placeholder: 'e.g. date(due) < today() && status != "done"' }),
-      button("×", () => updateFilter(path, () => null), "icon", "Remove filter"),
+      iconButton("x", undefined, () => updateFilter(path, () => null), "", "Remove filter"),
     );
   }
   const op = OPERATORS.find((o) => o.op === node.op)!;
@@ -353,8 +420,8 @@ function filterNode(node: FilterNode, path: number[], depth: number): HTMLElemen
   );
   if (op.needsValue) row.append(textInput(`${key}-v`, node.value, (v) => updateFilter(path, (n) => ({ ...(n as Extract<FilterNode, { kind: "cond" }>), value: v })), { placeholder: "value" }));
   row.append(
-    button("</>", () => updateFilter(path, (n) => ({ kind: "expr", expr: conditionExpr(n as Extract<FilterNode, { kind: "cond" }>) })), "icon", "Edit as expression"),
-    button("×", () => updateFilter(path, () => null), "icon", "Remove filter"),
+    iconButton("code", undefined, () => updateFilter(path, (n) => ({ kind: "expr", expr: conditionExpr(n as Extract<FilterNode, { kind: "cond" }>) })), "", "Edit as expression"),
+    iconButton("x", undefined, () => updateFilter(path, () => null), "", "Remove filter"),
   );
   return row;
 }
@@ -392,7 +459,7 @@ function propertiesPanel(): HTMLElement {
     box.checked = visible;
     box.onchange = () => setOrder(visible ? order.filter((id) => id !== p.id) : [...order, p.id]);
     const li = el("li", { class: visible ? "prop visible" : "prop", title: p.id },
-      el("span", { class: "grip" }, visible ? "⋮⋮" : ""),
+      el("span", { class: "grip" }, ...(visible ? [icon("grip")] : [])),
       box,
       el("span", { class: `prop-name ns-${p.ns}` }, propLabel(p)),
     );
@@ -400,7 +467,7 @@ function propertiesPanel(): HTMLElement {
       const name = p.id.slice("formula.".length);
       li.append(
         textInput(`formula-${name}`, r.formulas[name] ?? "", (v) => v.trim() && ops({ op: "setFormula", name, expr: v.trim() }), { class: "expr small", title: "Formula" }),
-        button("×", () => ops({ op: "setFormula", name, expr: undefined }), "icon", "Delete formula"),
+        iconButton("x", undefined, () => ops({ op: "setFormula", name, expr: undefined }), "", "Delete formula"),
       );
     }
     if (visible) {
@@ -451,7 +518,7 @@ function propertiesPanel(): HTMLElement {
     el("div", { class: "panel-title" }, "Properties"),
     filterBox,
     el("ul", { class: "props" }, ...shown.filter(matchesQuery).map((p) => item(p, true)), ...hidden.filter(matchesQuery).map((p) => item(p, false))),
-    el("div", { class: "row" }, fName, fExpr, button("+ Add formula", addFormula, "link")),
+    el("div", { class: "row" }, fName, fExpr, iconButton("sigma", "Add formula", addFormula, "add")),
   );
 }
 
@@ -467,6 +534,32 @@ function togglePanel(p: Panel): void {
   render();
 }
 
+/** A floating window under its toolbar button, as Obsidian shows the view, sort, filter and properties menus. */
+function popover(content: HTMLElement, align: "left" | "right"): HTMLElement {
+  content.classList.add("popover", `align-${align}`);
+  content.prepend(iconButton("x", undefined, closePanel, "panel-close", "Close (Escape)"));
+  return content;
+}
+
+/** A toolbar button and, while it is open, its popover. */
+function tool(p: Exclude<Panel, "view" | undefined>, name: IconName, label: string, count: number, content: () => HTMLElement): HTMLElement {
+  const b = iconButton(name, label, () => togglePanel(p), panel === p ? "tool active" : "tool");
+  if (count) b.append(el("span", { class: "badge" }, String(count)));
+  const wrap = el("div", { class: "anchor" }, b);
+  if (panel === p) wrap.append(popover(content(), "right"));
+  return wrap;
+}
+
+/** "12 results": a click opens the limit of the view. */
+function resultsCount(): HTMLElement {
+  const r = result!;
+  const label = `${r.matchCount.toLocaleString()} ${r.matchCount === 1 ? "result" : "results"}${r.view.limit !== undefined ? ` (limit ${r.view.limit})` : ""}${indexing?.checking ? " · updating…" : ""}`;
+  const b = button(label, () => togglePanel("results"), panel === "results" ? "count clickable active" : "count clickable", indexing?.checking ? "Showing the cached index while checking files for changes" : "Limit the results");
+  const wrap = el("div", { class: "anchor" }, b);
+  if (panel === "results") wrap.append(popover(resultsPanel(), "left"));
+  return wrap;
+}
+
 function toolbar(): HTMLElement {
   const r = result!;
   const filters = countConditions(r.viewFilter) + countConditions(r.baseFilter);
@@ -476,21 +569,45 @@ function toolbar(): HTMLElement {
     clearTimeout(searchTimer);
     searchTimer = window.setTimeout(() => setUi({ query: search }), 200);
   };
+  searchBox.onkeydown = (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closeSearch();
+    }
+  };
+  const searchToggle = iconButton("search", undefined, () => (searchOpen ? closeSearch() : openSearch()), searchOpen || search ? "tool active" : "tool", searchOpen ? "Close search (Escape)" : "Search");
   return el("div", { class: "toolbar" },
     viewSwitcher(),
+    resultsCount(),
     el("span", { class: "spacer" }),
-    button(r.sort.length ? `Sort (${r.sort.length})` : "Sort", () => togglePanel("sort"), panel === "sort" ? "tool active" : "tool"),
-    button(filters ? `Filter (${filters})` : "Filter", () => togglePanel("filter"), panel === "filter" ? "tool active" : "tool"),
-    button("Properties", () => togglePanel("properties"), panel === "properties" ? "tool active" : "tool"),
-    searchBox,
-    el("span", { class: "count", title: indexing?.checking ? "Showing the cached index while checking files for changes" : undefined },
-      `${r.matchCount} ${r.matchCount === 1 ? "result" : "results"}${indexing?.checking ? " · updating…" : ""}`),
-    button("YAML", () => send({ type: "openAsText" }), "tool", "Edit the .base file as text"),
+    tool("sort", "sort", "Sort", r.sort.length, sortPanel),
+    tool("filter", "filter", "Filter", filters, filterPanel),
+    tool("properties", "properties", "Properties", 0, propertiesPanel),
+    ...(searchOpen ? [el("label", { class: "search-box" }, searchBox)] : []),
+    searchToggle,
+    iconButton("plus", "New", () => send({ type: "newNote" }), "tool new", "New note"),
   );
 }
 
-function edit(target: EditTarget, edits: UiEdit[]): void {
-  send({ type: "edit", target, edits });
+function openSearch(): void {
+  searchOpen = true;
+  render();
+  app.querySelector<HTMLInputElement>('input[data-key="search"]')?.focus();
+}
+
+/** Hiding the search also ends it: what is hidden does not filter. */
+function closeSearch(): void {
+  searchOpen = false;
+  clearTimeout(searchTimer);
+  if (search) {
+    search = "";
+    setUi({ query: "" });
+  }
+  render();
+}
+
+function edit(target: EditTarget, edits: UiEdit[], confirmed = false): void {
+  send({ type: "edit", target, edits, confirmed });
 }
 
 function bulkBar(): HTMLElement {
@@ -560,11 +677,71 @@ function cellContent(c: Column, row: Row): (Node | string)[] {
   return [display(v)];
 }
 
-/** Shows the new value at once, then has the host write it. An empty value removes the property. */
-function commitValue(row: Row, c: Column, value: unknown): void {
+/** True when a change to this row's cell is meant for every selected row. */
+function editsSelection(row: Row): boolean {
+  return isSelected(row.uri) && selectionCount() > 1;
+}
+
+/**
+ * Shows the new value at once, then has the host write it. An empty value
+ * removes the property. In a selected row the change goes to every selected
+ * file, once the person says so in a short dialog.
+ */
+function commitValue(row: Row, c: Column, value: unknown, asYaml = false): void {
   const empty = isEmptyValue(value);
-  row.cells[c.id] = empty ? null : value;
-  edit({ uris: [row.uri] }, [empty ? { kind: "delete", key: c.id } : { kind: "setValue", key: c.id, value }]);
+  const change: UiEdit = empty ? { kind: "delete", key: c.id } : asYaml ? { kind: "set", key: c.id, input: String(value) } : { kind: "setValue", key: c.id, value };
+  if (!editsSelection(row)) {
+    row.cells[c.id] = empty ? null : value;
+    edit({ uris: [row.uri] }, [change]);
+    return;
+  }
+  const n = selectionCount();
+  const what = empty ? `Remove “${c.label}” from ${n} selected files?` : `Set “${c.label}” to ${display(value) || "this value"} in ${n} selected files?`;
+  void choose(what, [
+    { label: `Apply to ${n} files`, value: "all", primary: true },
+    { label: "Only this file", value: "one" },
+  ]).then((answer) => {
+    if (answer === "all") {
+      for (const r of result?.rows ?? []) if (isSelected(r.uri)) r.cells[c.id] = empty ? null : value;
+      // Confirmed here: the host does not ask a second time.
+      edit(selectionTarget(), [change], true);
+    } else if (answer === "one") {
+      row.cells[c.id] = empty ? null : value;
+      edit({ uris: [row.uri] }, [change]);
+    }
+    render();
+  });
+}
+
+/** A small modal question; resolves to the chosen value, or undefined on Cancel or Escape. */
+function choose(message: string, options: { label: string; value: string; primary?: boolean }[]): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    const before = document.activeElement as HTMLElement | null;
+    const close = (value: string | undefined) => {
+      overlay.remove();
+      before?.focus();
+      resolve(value);
+    };
+    const buttons = options.map((o) => button(o.label, () => close(o.value), o.primary ? "primary" : "secondary"));
+    const box = el("div", { class: "dialog", role: "dialog", "aria-modal": "true" },
+      el("p", {}, message),
+      el("div", { class: "dialog-buttons" }, ...buttons, button("Cancel", () => close(undefined), "secondary")),
+    );
+    const overlay = el("div", { class: "dialog-overlay" }, box);
+    overlay.onmousedown = (e) => {
+      if (e.target === overlay) close(undefined);
+    };
+    box.onkeydown = (e) => {
+      e.stopPropagation();
+      if (e.key === "Escape") {
+        e.preventDefault();
+        close(undefined);
+      }
+    };
+    // Outside #app, so a render underneath leaves it alone.
+    document.body.append(overlay);
+    buttons.find((_, i) => options[i]!.primary)?.focus();
+  });
 }
 
 function cellAt(rowIndex: number, colIndex: number): HTMLTableCellElement | null {
@@ -692,13 +869,10 @@ function startEdit(rowIndex: number, colIndex: number): void {
       const next = read();
       const before = c.type === "date" || c.type === "datetime" ? dateValue(original, c.type) : original;
       if (JSON.stringify(next ?? null) !== JSON.stringify(before ?? null) && !(isEmptyValue(next) && isEmptyValue(before))) {
-        if (c.type === "object") {
-          // Objects are typed as YAML and read by the host.
-          row.cells[c.id] = next;
-          edit({ uris: [row.uri] }, [isEmptyValue(next) ? { kind: "delete", key: c.id } : { kind: "set", key: c.id, input: String(next) }]);
-        } else {
-          commitValue(row, c, next);
-        }
+        // Objects are typed as YAML and read by the host.
+        commitValue(row, c, next, c.type === "object");
+        // The dialog takes the focus: no next cell to move to.
+        if (editsSelection(row)) move = undefined;
       }
     }
     td.classList.remove("editing");
@@ -754,8 +928,8 @@ function table(): HTMLElement {
   };
   const head = el("tr", {}, el("th", { class: "check" }, all));
   for (const c of r.columns) {
-    const arrow = sort && sort.property === c.id ? (sort.direction === "DESC" ? " ↓" : " ↑") : "";
-    const th = el("th", { title: `${c.id} — click to sort` }, c.label + arrow);
+    const sorted = sort && sort.property === c.id;
+    const th = el("th", { title: `${c.id} — click to sort` }, el("span", { class: "th-label" }, c.label), ...(sorted ? [icon(sort.direction === "DESC" ? "arrowDown" : "arrowUp", "sort-arrow")] : []));
     th.onclick = () => ops({ op: "setView", index: r.viewIndex, key: "sort", value: nextSort(c.id) });
     head.append(th);
   }
@@ -790,13 +964,155 @@ function table(): HTMLElement {
   return el("div", {}, ...lists, el("table", {}, el("thead", {}, head), body));
 }
 
+// --- cards, list and kanban ------------------------------------------------------
+
+/** What the view shows: the table, or the rows laid out as cards, a list or a board. */
+function content(): HTMLElement {
+  const r = result!;
+  if (r.rows.length === 0 || r.view.type === "table" || !LAYOUTS.some((l) => l.type === r.view.type)) return table();
+  if (r.view.type === "cards") return el("div", { class: "cards" }, ...r.rows.map((row) => card(row)));
+  if (r.view.type === "list") return el("ul", { class: "list" }, ...r.rows.map(listItem));
+  return kanban();
+}
+
+/** A row's title is its first column, or its file name. */
+function titleOf(row: Row): string {
+  const first = result!.columns[0];
+  return (first && display(row.cells[first.id])) || row.path.split("/").pop()!;
+}
+
+/** The columns after the first, with a value in this row. */
+function fieldsOf(row: Row, skip?: string): Column[] {
+  return result!.columns.slice(1).filter((c) => c.id !== skip && (c.type === "checkbox" || !isEmptyValue(row.cells[c.id])));
+}
+
+function selectBox(row: Row): HTMLInputElement {
+  const box = el("input", { type: "checkbox", class: "select-box", title: "Select" });
+  box.checked = isSelected(row.uri);
+  box.onclick = (e) => {
+    e.stopPropagation();
+    toggle(row.uri, result!.rows, e.shiftKey);
+    render();
+  };
+  return box;
+}
+
+function titleLink(row: Row): HTMLElement {
+  const t = el("a", { class: "title", href: "#", title: row.path }, titleOf(row));
+  t.onclick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    send({ type: "open", uri: row.uri });
+  };
+  return t;
+}
+
+function card(row: Row, skip?: string): HTMLElement {
+  return el("div", { class: isSelected(row.uri) ? "card selected" : "card", title: row.readOnly },
+    el("div", { class: "card-head" }, titleLink(row), selectBox(row)),
+    ...fieldsOf(row, skip).map((c) => el("div", { class: "card-field" }, el("span", { class: "card-label" }, c.label), el("span", { class: "card-value" }, ...cellContent(c, row)))),
+  );
+}
+
+function listItem(row: Row): HTMLElement {
+  const fields = fieldsOf(row).flatMap((c, i) => [...(i > 0 ? [el("span", { class: "sep" }, "·")] : []), el("span", { class: "list-value", title: c.label }, ...cellContent(c, row))]);
+  return el("li", { class: isSelected(row.uri) ? "list-item selected" : "list-item" }, selectBox(row), titleLink(row), el("span", { class: "list-fields" }, ...fields));
+}
+
+/** The lane a value belongs in; "" is the lane of files without one. */
+function laneOf(v: unknown): string {
+  return isEmptyValue(v) ? "" : display(v);
+}
+
+/** The value a card takes when it is dropped in a lane. */
+function laneValue(lane: string, g: Column): unknown {
+  if (lane === "") return null;
+  if (g.type === "number") return Number(lane);
+  if (g.type === "checkbox") return lane === "true";
+  if (g.type === "list") return [lane];
+  return lane;
+}
+
+// A lane being dragged, as opposed to a card.
+const LANE_TYPE = "application/x-bases-lane";
+
+function kanban(): HTMLElement {
+  const r = result!;
+  const g = r.group;
+  if (!g) return el("p", { class: "empty" }, "Choose a property to group by in the view settings (the icon next to the view name).");
+  const names = new Set([...(g.suggestions ?? []), ...r.rows.map((row) => laneOf(row.cells[g.id]))]);
+  names.delete("");
+  if (r.rows.some((row) => laneOf(row.cells[g.id]) === "")) names.add("");
+  // Lanes put in order by hand come first, in that order; the others follow, sorted, and "No value" last.
+  const saved = r.view.groupBy?.order ?? [];
+  const dir = r.view.groupBy?.direction === "DESC" ? -1 : 1;
+  const rank = (lane: string) => (saved.includes(lane) ? saved.indexOf(lane) : Number.MAX_SAFE_INTEGER);
+  const lanes = [...names].sort((a, b) => rank(a) - rank(b) || (a === "" ? 1 : 0) - (b === "" ? 1 : 0) || dir * a.localeCompare(b, undefined, { numeric: true }));
+  const movable = g.editable;
+  const moveLane = (from: string, to: string) => {
+    const next = lanes.filter((l) => l !== from);
+    // Dropped on a lane to its right: after it; to its left: before it.
+    next.splice(next.indexOf(to) + (lanes.indexOf(from) < lanes.indexOf(to) ? 1 : 0), 0, from);
+    ops({ op: "setView", index: r.viewIndex, key: "groupBy", value: { ...r.view.groupBy!, order: next } });
+  };
+
+  return el("div", { class: "board" }, ...lanes.map((lane) => {
+    const rows = r.rows.filter((row) => laneOf(row.cells[g.id]) === lane);
+    const body = el("div", { class: "lane-body" }, ...rows.map((row) => {
+      const c = card(row, g.id);
+      if (movable && !row.readOnly) {
+        c.draggable = true;
+        c.ondragstart = (e) => {
+          e.dataTransfer?.setData("text/plain", row.uri);
+          c.classList.add("dragging");
+        };
+        c.ondragend = () => c.classList.remove("dragging");
+      }
+      return c;
+    }));
+    const head = el("div", { class: "lane-head", draggable: "true", title: "Drag to move the column" },
+      el("span", { class: "lane-grip" }, icon("grip")),
+      el("span", { class: lane ? "lane-name" : "lane-name none" }, lane || "No value"), el("span", { class: "lane-count" }, String(rows.length)));
+    const col = el("div", { class: "lane" }, head, body);
+    head.ondragstart = (e) => {
+      e.stopPropagation();
+      e.dataTransfer?.setData(LANE_TYPE, lane);
+      col.classList.add("dragging");
+    };
+    head.ondragend = () => col.classList.remove("dragging");
+    const isLane = (e: DragEvent) => Boolean(e.dataTransfer?.types.includes(LANE_TYPE));
+    col.ondragover = (e) => {
+      if (!isLane(e) && !movable) return;
+      e.preventDefault();
+      col.classList.add(isLane(e) ? "lane-drop" : "drop");
+    };
+    col.ondragleave = (e) => {
+      if (!col.contains(e.relatedTarget as Node)) col.classList.remove("drop", "lane-drop");
+    };
+    col.ondrop = (e) => {
+      e.preventDefault();
+      col.classList.remove("drop", "lane-drop");
+      if (isLane(e)) {
+        const from = e.dataTransfer!.getData(LANE_TYPE);
+        if (from !== lane) moveLane(from, lane);
+        return;
+      }
+      const row = r.rows.find((x) => x.uri === e.dataTransfer?.getData("text/plain"));
+      if (!movable || !row || laneOf(row.cells[g.id]) === lane) return;
+      commitValue(row, g, laneValue(lane, g));
+      render();
+    };
+    return col;
+  }));
+}
+
 function pager(): HTMLElement {
   const r = result!;
   const from = r.matchCount === 0 ? 0 : r.page * r.pageSize + 1;
   const to = Math.min((r.page + 1) * r.pageSize, r.matchCount);
-  const prev = button("‹ Previous", () => setUi({ page: r.page - 1 }));
+  const prev = iconButton("chevronLeft", undefined, () => setUi({ page: r.page - 1 }), "", "Previous page");
   prev.disabled = r.page === 0;
-  const next = button("Next ›", () => setUi({ page: r.page + 1 }));
+  const next = iconButton("chevronRight", undefined, () => setUi({ page: r.page + 1 }), "", "Next page");
   next.disabled = r.page >= r.pageCount - 1;
   const sizes = [25, 50, 100, 250, 500];
   if (!sizes.includes(r.pageSize)) sizes.push(r.pageSize);
@@ -827,11 +1143,6 @@ function render(): void {
   const parts: HTMLElement[] = [];
   if (result) {
     parts.push(toolbar());
-    const open = panel === "view" ? viewPanel() : panel === "sort" ? sortPanel() : panel === "filter" ? filterPanel() : panel === "properties" ? propertiesPanel() : undefined;
-    if (open) {
-      open.prepend(button("×", closePanel, "icon panel-close", "Close (Escape)"));
-      parts.push(open);
-    }
   }
   if (error) parts.push(el("div", { class: "banner error" }, error));
   for (const e of result?.errors ?? []) parts.push(el("div", { class: "banner warn" }, e));
@@ -841,10 +1152,11 @@ function render(): void {
   }
   if (result) {
     if (selectionCount() > 0) parts.push(bulkBar());
-    parts.push(el("div", { class: "table-host" }, table()));
+    parts.push(el("div", { class: "table-host" }, content()));
     if (result.pageCount > 1 || result.matchCount > 25) parts.push(pager());
   }
   app.replaceChildren(...parts);
+  keepInView(app.querySelector<HTMLElement>(".popover"));
 
   for (const [key, value] of typed) {
     const input = app.querySelector<HTMLInputElement>(`input[data-key="${CSS.escape(key)}"]`);
@@ -856,6 +1168,19 @@ function render(): void {
     if (again instanceof HTMLInputElement && caret !== null && again.type !== "checkbox" && again.type !== "number") again.setSelectionRange(caret, caret);
   }
 }
+
+/** Moves a popover left or right so all of it is inside the window. */
+function keepInView(pop: HTMLElement | null): void {
+  if (!pop) return;
+  const margin = 8;
+  const rect = pop.getBoundingClientRect();
+  let shift = 0;
+  if (rect.right > window.innerWidth - margin) shift = window.innerWidth - margin - rect.right;
+  if (rect.left + shift < margin) shift = margin - rect.left;
+  if (shift) pop.style.transform = `translateX(${Math.round(shift)}px)`;
+}
+
+window.addEventListener("resize", () => keepInView(app.querySelector<HTMLElement>(".popover")));
 
 window.addEventListener("message", (event: MessageEvent<ToWebview>) => {
   const msg = event.data;
@@ -889,8 +1214,11 @@ window.addEventListener("message", (event: MessageEvent<ToWebview>) => {
 });
 
 // The view menu closes on a click elsewhere and on Escape; arrows move through it.
+// A popover closes on a click outside it and its button.
 document.addEventListener("mousedown", (e) => {
-  if (viewMenuOpen && !(e.target as HTMLElement).closest(".view-switcher")) closeViewMenu();
+  const target = e.target as HTMLElement;
+  if (viewMenuOpen && !target.closest(".view-switcher")) closeViewMenu();
+  if (panel && !target.closest(".anchor")) closePanel();
 });
 // Escape closes an open panel, unless it is cancelling a cell edit or the view menu.
 document.addEventListener("keydown", (e) => {

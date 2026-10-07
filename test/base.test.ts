@@ -210,3 +210,43 @@ describe("column types", () => {
     expect(view.columns[0]!.suggestions).toBeUndefined();
   });
 });
+
+describe("layouts", () => {
+  const KANBAN = `
+views:
+  - type: kanban
+    name: Board
+    groupBy:
+      property: status
+    order: [file.name, priority]
+`;
+
+  it("carries the group's values in the cells of a kanban view, without making it a column", () => {
+    const view = computeView(parseBase(KANBAN), records, { viewIndex: 0 });
+    expect(view.view.type).toBe("kanban");
+    expect(view.view.groupBy).toEqual({ property: "status", direction: "ASC" });
+    expect(view.columns.map((c) => c.id)).toEqual(["file.name", "priority"]);
+    expect(view.group).toMatchObject({ id: "status", editable: true, type: "text" });
+    expect(view.group?.suggestions).toEqual(["open", "done"]);
+    expect(view.rows.find((r) => r.path === "projects/beta.md")?.cells.status).toBe("done");
+  });
+
+  it("writes the layout and the group into the view", () => {
+    const text = updateBase(KANBAN, [
+      { op: "setView", index: 0, key: "type", value: "cards" },
+      { op: "setView", index: 0, key: "groupBy", value: undefined },
+    ]);
+    expect(parseBase(text).views[0]).toMatchObject({ type: "cards", name: "Board" });
+    expect(parseBase(text).views[0]!.groupBy).toBeUndefined();
+  });
+});
+
+describe("kanban lanes", () => {
+  it("keeps the lane order written in groupBy", () => {
+    const text = updateBase("views:\n  - type: kanban\n    name: Board\n    groupBy:\n      property: status\n", [
+      { op: "setView", index: 0, key: "groupBy", value: { property: "status", direction: "ASC", order: ["open", "", "done"] } },
+    ]);
+    const view = computeView(parseBase(text), records, { viewIndex: 0 });
+    expect(view.view.groupBy).toEqual({ property: "status", direction: "ASC", order: ["open", "", "done"] });
+  });
+});

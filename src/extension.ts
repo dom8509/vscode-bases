@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { NEW_BASE } from "./core/baseEdit";
-import { BaseEditorProvider, VIEW_TYPE } from "./host/baseEditor";
+import { BaseEditorProvider, reopenWith, VIEW_TYPE } from "./host/baseEditor";
 import { registerPreviewProvider } from "./host/edits";
 import { WorkspaceIndex } from "./host/indexer";
 
@@ -23,6 +23,15 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("bases.openAsText", async (target?: vscode.Uri) => {
       const uri = target ?? activeBaseUri();
       if (uri) await vscode.commands.executeCommand("vscode.openWith", uri, "default");
+    }),
+    // The toggle in the editor title, as for Markdown: the table ⇄ its YAML.
+    vscode.commands.registerCommand("bases.showSource", async (target?: vscode.Uri) => {
+      const uri = target ?? activeBaseUri();
+      if (uri) await reopenWith(uri, "default");
+    }),
+    vscode.commands.registerCommand("bases.showPreview", async (target?: vscode.Uri) => {
+      const uri = target ?? activeBaseUri();
+      if (uri) await reopenWith(uri, VIEW_TYPE);
     }),
   );
 }

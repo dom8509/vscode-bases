@@ -3,7 +3,7 @@
 // and only the lines that change are rewritten.
 
 import { isMap, isSeq, parseDocument, type Document, type YAMLMap } from "yaml";
-import type { Filter, SortSpec } from "./base";
+import type { Filter, GroupBy, SortSpec } from "./base";
 import { mergeLines } from "./writer";
 
 const STRINGIFY = { lineWidth: 0, flowCollectionPadding: false } as const;
@@ -12,6 +12,9 @@ export type BaseOp =
   /** Sets (or, with undefined, removes) the filters that apply to every view. */
   | { op: "setBaseFilters"; filters: Filter | undefined }
   | { op: "setView"; index: number; key: "name"; value: string }
+  /** The layout: table, cards, list or kanban. */
+  | { op: "setView"; index: number; key: "type"; value: string }
+  | { op: "setView"; index: number; key: "groupBy"; value: GroupBy | undefined }
   | { op: "setView"; index: number; key: "filters"; value: Filter | undefined }
   | { op: "setView"; index: number; key: "order"; value: string[] }
   | { op: "setView"; index: number; key: "sort"; value: SortSpec[] }

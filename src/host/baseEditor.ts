@@ -5,12 +5,31 @@
 import * as vscode from "vscode";
 import { computeView, DEFAULT_PAGE_SIZE, parseBase } from "../core/base";
 import { updateBase, type BaseOp } from "../core/baseEdit";
+import { toDelimited } from "../core/export";
+import { newNote, noteText } from "../core/newNote";
 import { parseInputValue, textChange, type PropertyEdit } from "../core/writer";
 import type { EditTarget, FromWebview, ToWebview, UiEdit, UiState } from "../protocol";
 import { applyPropertyEdits } from "./edits";
 import { fileInfo, type WorkspaceIndex } from "./indexer";
 
 export const VIEW_TYPE = "bases.editor";
+
+/**
+ * Swaps a base between the table and its YAML, as the Markdown preview does:
+ * the other editor opens in the same place and the one it replaces closes.
+ */
+export async function reopenWith(uri: vscode.Uri, viewType: typeof VIEW_TYPE | "default"): Promise<void> {
+  const isOld = (tab: vscode.Tab) => {
+    const input = tab.input;
+    if (viewType === "default") return input instanceof vscode.TabInputCustom && input.viewType === VIEW_TYPE && input.uri.toString() === uri.toString();
+    return input instanceof vscode.TabInputText && input.uri.toString() === uri.toString();
+  };
+  const group = vscode.window.tabGroups.activeTabGroup;
+  const old = group.tabs.find(isOld);
+  await vscode.commands.executeCommand("vscode.openWith", uri, viewType, group.viewColumn);
+  // The text keeps its unsaved changes in the table's document, so closing the tab loses nothing.
+  if (old && !old.isDirty) await vscode.window.tabGroups.close(group.tabs.find(isOld) ?? old, true).then(undefined, () => undefined);
+}
 
 function toPropertyEdit(e: UiEdit): PropertyEdit {
   if (e.kind === "set") return { kind: "set", key: e.key, value: parseInputValue(e.input) };
@@ -128,11 +147,27 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
           case "open":
             await vscode.window.showTextDocument(vscode.Uri.parse(msg.uri), { preview: true, viewColumn: vscode.ViewColumn.Beside });
             break;
-          case "openAsText":
-            await vscode.commands.executeCommand("vscode.openWith", document.uri, "default");
+          case "newNote":
+            await this.createNote(document, ui.viewIndex, post);
             break;
+          case "export": {
+            const all = computeView(parseBase(document.getText()), this.index.all(), { ...ui, page: 0, pageSize: Number.MAX_SAFE_INTEGER, thisFile: await thisFile() });
+            const files = `${all.rows.length} ${all.rows.length === 1 ? "row" : "rows"}`;
+            if (msg.to === "clipboard") {
+              await vscode.env.clipboard.writeText(toDelimited(all.columns, all.rows, "\t"));
+              post({ type: "notice", message: `Copied ${files} to the clipboard` });
+              break;
+            }
+            const name = `${document.uri.path.split("/").pop()!.replace(/\.base$/, "")} - ${all.view.name}.csv`.replace(/[\\/:*?"<>|]/g, "_");
+            const target = await vscode.window.showSaveDialog({ defaultUri: vscode.Uri.joinPath(document.uri, "..", name), filters: { CSV: ["csv"] } });
+            if (!target) break;
+            // The BOM lets Excel read the file as UTF-8.
+            await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(`\uFEFF${toDelimited(all.columns, all.rows, ",")}`));
+            post({ type: "notice", message: `Exported ${files} to ${vscode.workspace.asRelativePath(target)}` });
+            break;
+          }
           case "edit": {
-            const confirm = vscode.workspace.getConfiguration("bases").get<boolean>("confirmBulkEdits", true);
+            const confirm = !msg.confirmed && vscode.workspace.getConfiguration("bases").get<boolean>("confirmBulkEdits", true);
             const outcome = await applyPropertyEdits(await resolveTarget(msg.target), msg.edits.map(toPropertyEdit), { confirm });
             for (const f of outcome.failures) this.log.warn(`Not changed: ${f}`);
             if (outcome.failures.length > 0) {
@@ -154,6 +189,40 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
       clearTimeout(timer);
       for (const s of subscriptions) s.dispose();
     });
+  }
+
+  /** Asks for a name, writes the note in the folder of `bases.newNoteFolder` (or the view's), and opens it. */
+  private async createNote(document: vscode.TextDocument, viewIndex: number, post: (msg: ToWebview) => void): Promise<void> {
+    const root = vscode.workspace.getWorkspaceFolder(document.uri)?.uri ?? vscode.workspace.workspaceFolders?.[0]?.uri;
+    if (!root) {
+      post({ type: "notice", message: "Open a folder first: a new note goes into the workspace." });
+      return;
+    }
+    const note = newNote(parseBase(document.getText()), viewIndex);
+    const setting = vscode.workspace.getConfiguration("bases").get<string>("newNoteFolder", "").trim().replace(/^[/\\]+|[/\\]+$/g, "");
+    const folderPath = note.folder ?? setting;
+    const folder = folderPath ? vscode.Uri.joinPath(root, ...folderPath.split(/[/\\]/)) : root;
+
+    const exists = (uri: vscode.Uri) => vscode.workspace.fs.stat(uri).then(() => true, () => false);
+    const fileFor = (name: string) => vscode.Uri.joinPath(folder, /\.(md|markdown)$/i.test(name) ? name : `${name}.md`);
+    let suggestion = "Untitled";
+    for (let i = 2; await exists(fileFor(suggestion)); i++) suggestion = `Untitled ${i}`;
+    const where = folderPath ? `${folderPath}/` : "the workspace folder";
+    const name = await vscode.window.showInputBox({
+      title: "New note",
+      prompt: `Name of the note, in ${where}`,
+      value: suggestion,
+      validateInput: async (v) => {
+        if (!v.trim()) return "Give the note a name.";
+        if (/[\\/:*?"<>|]/.test(v)) return "A name cannot contain \\ / : * ? \" < > |";
+        return (await exists(fileFor(v.trim()))) ? `${v.trim()} already exists.` : undefined;
+      },
+    });
+    if (!name) return;
+    const uri = fileFor(name.trim());
+    await vscode.workspace.fs.createDirectory(folder);
+    await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(noteText(note.properties)));
+    await vscode.window.showTextDocument(uri, { preview: false, viewColumn: vscode.ViewColumn.Beside });
   }
 
   private html(webview: vscode.Webview): string {

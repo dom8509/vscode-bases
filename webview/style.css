@@ -233,20 +233,80 @@ select {
 }
 
 .panel {
-  position: relative;
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding: 10px 12px;
-  border-bottom: 1px solid var(--vscode-panel-border);
   background: var(--vscode-editorWidget-background);
-  max-height: 45vh;
   overflow: auto;
+}
+
+/* --- popovers: the view, sort, filter and properties windows --- */
+
+.anchor {
+  position: relative;
+}
+
+.popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  z-index: 20;
+  width: max-content;
+  min-width: 260px;
+  max-width: min(640px, calc(100vw - 16px));
+  max-height: 70vh;
+  box-sizing: border-box;
+  font-weight: normal;
+  color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
+  border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border));
+  border-radius: 8px;
+  box-shadow: 0 4px 16px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+  animation: pop-in 0.08s ease-out;
+}
+
+.popover.align-left {
+  left: 0;
+}
+
+.popover.align-right {
+  right: 0;
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    margin-top: -4px;
+  }
 }
 
 .panel-title {
   font-weight: 600;
   margin-right: 8px;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  margin-left: -6px;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 24px;
+}
+
+.panel-head button.back {
+  margin-left: -4px;
+  padding: 2px;
+}
+
+.popover > .panel-title,
+.popover > .row:nth-child(2) {
+  padding-right: 24px;
 }
 
 .panel .row {
@@ -262,7 +322,7 @@ select {
   gap: 8px;
 }
 
-.panel .field span {
+.panel .field > span {
   width: 90px;
   color: var(--vscode-descriptionForeground);
 }
@@ -505,7 +565,433 @@ td.type-checkbox {
 button.panel-close {
   position: absolute;
   top: 6px;
-  right: 8px;
-  font-size: 15px;
-  line-height: 1;
+  right: 6px;
+}
+
+/* --- icons --- */
+
+.svg-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+button.clickable-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  color: var(--vscode-descriptionForeground);
+  background: transparent;
+}
+
+button.clickable-icon:hover,
+button.clickable-icon.active {
+  color: var(--vscode-foreground);
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+}
+
+button.clickable-icon.add {
+  align-self: flex-start;
+  padding-left: 2px;
+}
+
+button.clickable-icon.danger {
+  border: none;
+  color: var(--vscode-errorForeground);
+}
+
+.toolbar {
+  gap: 2px;
+  padding: 4px 8px;
+}
+
+button.count.clickable {
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: transparent;
+}
+
+button.count.clickable:hover,
+button.count.clickable.active {
+  color: var(--vscode-foreground);
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+}
+
+.toolbar .count {
+  margin-left: 6px;
+  font-size: 0.92em;
+}
+
+.badge {
+  min-width: 14px;
+  padding: 0 4px;
+  border-radius: 8px;
+  font-size: 0.85em;
+  line-height: 16px;
+  text-align: center;
+  color: var(--vscode-badge-foreground);
+  background: var(--vscode-badge-background);
+}
+
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+  padding: 0 6px;
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: 4px;
+  color: var(--vscode-descriptionForeground);
+  background: var(--vscode-input-background);
+}
+
+.search-box:focus-within {
+  outline: 1px solid var(--vscode-focusBorder);
+}
+
+.search-box .svg-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.search-box input.search {
+  width: 160px;
+  padding: 3px 0;
+  border: none;
+  outline: none;
+  background: transparent;
+}
+
+
+.view-icon,
+.chevron,
+.view-item .check {
+  display: inline-flex;
+  align-items: center;
+}
+
+.view-icon .svg-icon {
+  width: 15px;
+  height: 15px;
+}
+
+.chevron .svg-icon,
+.view-item .check .svg-icon {
+  width: 13px;
+  height: 13px;
+}
+
+.view-item .check {
+  width: 14px;
+}
+
+.view-item button.clickable-icon {
+  visibility: hidden;
+  padding: 2px;
+}
+
+.view-item:hover button.clickable-icon,
+.view-item:focus button.clickable-icon,
+.view-item.active button.clickable-icon {
+  visibility: visible;
+}
+
+.grip {
+  display: inline-flex;
+  width: 14px;
+}
+
+.grip .svg-icon {
+  width: 14px;
+  height: 14px;
+}
+
+th .th-label {
+  vertical-align: middle;
+}
+
+th .sort-arrow {
+  width: 13px;
+  height: 13px;
+  margin-left: 4px;
+  vertical-align: middle;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* Narrow editors: the tools keep only their icons. */
+@media (max-width: 640px) {
+  .toolbar .tool .label {
+    display: none;
+  }
+
+  .search-box input.search {
+    width: 90px;
+  }
+}
+
+/* A filter stays on one line in its window. */
+.filter-group .row {
+  flex-wrap: nowrap;
+}
+
+.filter-group .row input:not(.expr) {
+  width: 140px;
+}
+
+/* --- the short question before a change goes to every selected row --- */
+
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 15vh;
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.dialog {
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 14px 16px 12px;
+  border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border));
+  border-radius: 8px;
+  color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
+  background: var(--vscode-editorWidget-background);
+  box-shadow: 0 4px 16px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+  animation: pop-in 0.08s ease-out;
+}
+
+.dialog p {
+  margin: 0 0 12px;
+}
+
+.dialog-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* --- shared by cards, list and kanban --- */
+
+a.title {
+  font-weight: 600;
+  color: var(--vscode-textLink-foreground);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+a.title:hover {
+  text-decoration: underline;
+}
+
+.select-box {
+  margin: 0;
+  flex: none;
+}
+
+.card .select-box,
+.list-item .select-box {
+  opacity: 0;
+}
+
+.card:hover .select-box,
+.card.selected .select-box,
+.list-item:hover .select-box,
+.list-item.selected .select-box {
+  opacity: 1;
+}
+
+/* --- cards --- */
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  align-items: start;
+  gap: 12px;
+  padding: 12px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 8px;
+  background: var(--vscode-editorWidget-background);
+}
+
+.card:hover {
+  border-color: var(--vscode-focusBorder);
+}
+
+.card.selected {
+  outline: 1px solid var(--vscode-focusBorder);
+  background: var(--vscode-list-inactiveSelectionBackground, var(--vscode-editorWidget-background));
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.card-field {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  font-size: 0.92em;
+}
+
+.card-label {
+  flex: none;
+  width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--vscode-descriptionForeground);
+}
+
+.card-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- list --- */
+
+ul.list {
+  list-style: none;
+  margin: 0;
+  padding: 6px 0;
+}
+
+.list-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  white-space: nowrap;
+}
+
+.list-item:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.list-item.selected {
+  background: var(--vscode-list-inactiveSelectionBackground);
+}
+
+.list-fields {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* --- kanban --- */
+
+.board {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  min-height: 100%;
+  box-sizing: border-box;
+}
+
+.lane {
+  flex: 0 0 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 100%;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--vscode-sideBar-background, var(--vscode-editorWidget-background));
+  border: 1px solid transparent;
+}
+
+.lane.drop {
+  border-color: var(--vscode-focusBorder);
+}
+
+.lane.lane-drop {
+  border: 1px dashed var(--vscode-focusBorder);
+}
+
+.lane.dragging {
+  opacity: 0.5;
+}
+
+.lane-head {
+  cursor: grab;
+}
+
+.lane-grip {
+  display: inline-flex;
+  margin-left: -4px;
+  color: var(--vscode-descriptionForeground);
+  opacity: 0;
+}
+
+.lane-head:hover .lane-grip {
+  opacity: 1;
+}
+
+.lane-grip .svg-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.lane-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  font-weight: 600;
+}
+
+.lane-name.none {
+  font-style: italic;
+  color: var(--vscode-descriptionForeground);
+}
+
+.lane-count {
+  color: var(--vscode-descriptionForeground);
+  font-weight: normal;
+}
+
+.lane-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 24px;
+}
+
+.lane .card[draggable="true"] {
+  cursor: grab;
+}
+
+.lane .card.dragging {
+  opacity: 0.5;
+}
+
+button.clickable-icon.new {
+  margin-left: 4px;
+  color: var(--vscode-foreground);
+  border: 1px solid var(--vscode-panel-border);
 }

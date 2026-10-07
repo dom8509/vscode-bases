@@ -13,9 +13,18 @@ export interface SortSpec {
   direction: "ASC" | "DESC";
 }
 
+/** The property a kanban view groups its cards by, one lane per value. */
+export interface GroupBy {
+  property: string;
+  direction?: "ASC" | "DESC";
+  /** Lanes the person put in order (by dragging); "" is the lane without a value. Other lanes follow, sorted. */
+  order?: string[];
+}
+
 export interface ViewConfig {
   type: string;
   name: string;
+  groupBy?: GroupBy | string;
   filters?: Filter;
   order?: string[];
   sort?: SortSpec[];
@@ -121,7 +130,9 @@ export interface ViewResult {
   views: { name: string; type: string }[];
   viewIndex: number;
   /** The selected view as written in the base. */
-  view: { name: string; order: string[]; sort: SortSpec[]; limit?: number };
+  view: { name: string; type: string; order: string[]; sort: SortSpec[]; limit?: number; groupBy?: GroupBy };
+  /** The column of the groupBy property, when the view has one; its values are in every row's cells. */
+  group?: Column;
   baseFilter: FilterGroup;
   viewFilter: FilterGroup;
   /** The filters as written in the file, to tell whether an edit in progress is still current. */
@@ -265,6 +276,17 @@ export function computeView(base: BaseConfig, records: Iterable<FileRecord>, opt
   // A view without columns lists its files by name.
   const order = Array.isArray(view.order) && view.order.length > 0 ? view.order.map(String) : ["file.name"];
   const refs = order.map(propertyRef);
+  const rawGroup = typeof view.groupBy === "string" ? { property: view.groupBy } : view.groupBy;
+  const groupBy: GroupBy | undefined = rawGroup && typeof rawGroup.property === "string" && rawGroup.property
+    ? {
+      property: rawGroup.property,
+      direction: String(rawGroup.direction).toUpperCase() === "DESC" ? "DESC" : "ASC",
+      ...(Array.isArray(rawGroup.order) ? { order: rawGroup.order.map((x) => (x === null || x === undefined ? "" : String(x))) } : {}),
+    }
+    : undefined;
+  const groupRef = groupBy && propertyRef(groupBy.property);
+  // The group's values travel with the cells, also when it is not a column.
+  const cellRefs = groupRef && !refs.some((r) => r.id === groupRef.id) ? [...refs, groupRef] : refs;
 
   const sort = (Array.isArray(view.sort) ? view.sort : []).filter((s) => s && s.property);
   const sortRefs = sort.map((s) => ({ ref: propertyRef(s.property), desc: String(s.direction).toUpperCase() === "DESC" }));
@@ -298,7 +320,7 @@ export function computeView(base: BaseConfig, records: Iterable<FileRecord>, opt
 
   const cellsOf = (ctx: EvalContext): Record<string, unknown> => {
     const cells: Record<string, unknown> = {};
-    for (const ref of refs) {
+    for (const ref of cellRefs) {
       try {
         cells[ref.id] = serialize(cellValue(ref, ctx));
       } catch (e) {
@@ -328,11 +350,12 @@ export function computeView(base: BaseConfig, records: Iterable<FileRecord>, opt
     cells: h.cells ?? cellsOf(h.ctx),
   }));
 
-  const columns: Column[] = refs.map((ref) => {
+  const columnOf = (ref: PropertyRef): Column => {
     if (ref.ns !== "note") return { id: ref.id, label: label(base, ref), editable: false, type: "text" };
     const values = hits.map((h) => h.rec.properties[ref.name]);
     return { id: ref.id, label: label(base, ref), editable: true, type: inferType(ref.name, values), suggestions: suggestionsOf(values) };
-  });
+  };
+  const columns: Column[] = refs.map(columnOf);
   const properties: PropertyInfo[] = [
     ...FILE_PROPERTIES.map((n) => propertyRef(`file.${n}`)),
     ...propertyNames.map(propertyRef),
@@ -342,7 +365,8 @@ export function computeView(base: BaseConfig, records: Iterable<FileRecord>, opt
   return {
     views: base.views.map((v) => ({ name: v.name, type: v.type })),
     viewIndex,
-    view: { name: view.name, order, sort, limit: typeof view.limit === "number" ? view.limit : undefined },
+    view: { name: view.name, type: view.type, order, sort, limit: typeof view.limit === "number" ? view.limit : undefined, groupBy },
+    group: groupRef && columnOf(groupRef),
     baseFilter: toModel(base.filters),
     viewFilter: toModel(view.filters),
     rawFilters: { base: base.filters ?? null, view: view.filters ?? null },
