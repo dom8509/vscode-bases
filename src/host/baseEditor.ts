@@ -12,6 +12,23 @@ import { fileInfo, type WorkspaceIndex } from "./indexer";
 
 export const VIEW_TYPE = "bases.editor";
 
+/**
+ * Swaps a base between the table and its YAML, as the Markdown preview does:
+ * the other editor opens in the same place and the one it replaces closes.
+ */
+export async function reopenWith(uri: vscode.Uri, viewType: typeof VIEW_TYPE | "default"): Promise<void> {
+  const isOld = (tab: vscode.Tab) => {
+    const input = tab.input;
+    if (viewType === "default") return input instanceof vscode.TabInputCustom && input.viewType === VIEW_TYPE && input.uri.toString() === uri.toString();
+    return input instanceof vscode.TabInputText && input.uri.toString() === uri.toString();
+  };
+  const group = vscode.window.tabGroups.activeTabGroup;
+  const old = group.tabs.find(isOld);
+  await vscode.commands.executeCommand("vscode.openWith", uri, viewType, group.viewColumn);
+  // The text keeps its unsaved changes in the table's document, so closing the tab loses nothing.
+  if (old && !old.isDirty) await vscode.window.tabGroups.close(group.tabs.find(isOld) ?? old, true).then(undefined, () => undefined);
+}
+
 function toPropertyEdit(e: UiEdit): PropertyEdit {
   if (e.kind === "set") return { kind: "set", key: e.key, value: parseInputValue(e.input) };
   if (e.kind === "setValue") return { kind: "set", key: e.key, value: e.value };
@@ -129,7 +146,7 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
             await vscode.window.showTextDocument(vscode.Uri.parse(msg.uri), { preview: true, viewColumn: vscode.ViewColumn.Beside });
             break;
           case "openAsText":
-            await vscode.commands.executeCommand("vscode.openWith", document.uri, "default");
+            await reopenWith(document.uri, "default");
             break;
           case "edit": {
             const confirm = vscode.workspace.getConfiguration("bases").get<boolean>("confirmBulkEdits", true);

@@ -233,20 +233,60 @@ select {
 }
 
 .panel {
-  position: relative;
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding: 10px 12px;
-  border-bottom: 1px solid var(--vscode-panel-border);
   background: var(--vscode-editorWidget-background);
-  max-height: 45vh;
   overflow: auto;
+}
+
+/* --- popovers: the view, sort, filter and properties windows --- */
+
+.anchor {
+  position: relative;
+}
+
+.popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  z-index: 20;
+  width: max-content;
+  min-width: 260px;
+  max-width: min(640px, calc(100vw - 16px));
+  max-height: 70vh;
+  box-sizing: border-box;
+  font-weight: normal;
+  color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
+  border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border));
+  border-radius: 8px;
+  box-shadow: 0 4px 16px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+  animation: pop-in 0.08s ease-out;
+}
+
+.popover.align-left {
+  left: 0;
+}
+
+.popover.align-right {
+  right: 0;
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    margin-top: -4px;
+  }
 }
 
 .panel-title {
   font-weight: 600;
   margin-right: 8px;
+}
+
+.popover > .panel-title,
+.popover > .row:nth-child(2) {
+  padding-right: 24px;
 }
 
 .panel .row {
@@ -505,7 +545,171 @@ td.type-checkbox {
 button.panel-close {
   position: absolute;
   top: 6px;
-  right: 8px;
-  font-size: 15px;
-  line-height: 1;
+  right: 6px;
+}
+
+/* --- icons --- */
+
+.svg-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+button.clickable-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  color: var(--vscode-descriptionForeground);
+  background: transparent;
+}
+
+button.clickable-icon:hover,
+button.clickable-icon.active {
+  color: var(--vscode-foreground);
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+}
+
+button.clickable-icon.add {
+  align-self: flex-start;
+  padding-left: 2px;
+}
+
+button.clickable-icon.danger {
+  border: none;
+  color: var(--vscode-errorForeground);
+}
+
+.toolbar {
+  gap: 2px;
+  padding: 4px 8px;
+}
+
+.toolbar .count {
+  margin-left: 6px;
+  font-size: 0.92em;
+}
+
+.badge {
+  min-width: 14px;
+  padding: 0 4px;
+  border-radius: 8px;
+  font-size: 0.85em;
+  line-height: 16px;
+  text-align: center;
+  color: var(--vscode-badge-foreground);
+  background: var(--vscode-badge-background);
+}
+
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+  padding: 0 6px;
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: 4px;
+  color: var(--vscode-descriptionForeground);
+  background: var(--vscode-input-background);
+}
+
+.search-box:focus-within {
+  outline: 1px solid var(--vscode-focusBorder);
+}
+
+.search-box .svg-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.search-box input.search {
+  width: 160px;
+  padding: 3px 0;
+  border: none;
+  outline: none;
+  background: transparent;
+}
+
+.divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--vscode-panel-border);
+}
+
+.view-icon,
+.chevron,
+.view-item .check {
+  display: inline-flex;
+  align-items: center;
+}
+
+.view-icon .svg-icon {
+  width: 15px;
+  height: 15px;
+}
+
+.chevron .svg-icon,
+.view-item .check .svg-icon {
+  width: 13px;
+  height: 13px;
+}
+
+.view-item .check {
+  width: 14px;
+}
+
+.view-item button.clickable-icon {
+  visibility: hidden;
+  padding: 2px;
+}
+
+.view-item:hover button.clickable-icon,
+.view-item:focus button.clickable-icon,
+.view-item.active button.clickable-icon {
+  visibility: visible;
+}
+
+.grip {
+  display: inline-flex;
+  width: 14px;
+}
+
+.grip .svg-icon {
+  width: 14px;
+  height: 14px;
+}
+
+th .th-label {
+  vertical-align: middle;
+}
+
+th .sort-arrow {
+  width: 13px;
+  height: 13px;
+  margin-left: 4px;
+  vertical-align: middle;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* Narrow editors: the tools keep only their icons. */
+@media (max-width: 640px) {
+  .toolbar .tool .label {
+    display: none;
+  }
+
+  .search-box input.search {
+    width: 90px;
+  }
+}
+
+/* A filter stays on one line in its window. */
+.filter-group .row {
+  flex-wrap: nowrap;
+}
+
+.filter-group .row input:not(.expr) {
+  width: 140px;
 }

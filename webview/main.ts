@@ -13,6 +13,7 @@ import {
   type FilterNode,
   type Operator,
 } from "../src/core/filterModel";
+import { icon, type IconName } from "./icons";
 import type { BaseOp, EditTarget, FromWebview, IndexProgress, SortSpec, ToWebview, UiEdit, UiState, ViewResult } from "../src/protocol";
 
 declare function acquireVsCodeApi(): { postMessage(msg: FromWebview): void };
@@ -88,12 +89,19 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string,
   return node;
 }
 
-function button(label: string, onClick: () => void, cls = "secondary", title?: string): HTMLButtonElement {
-  const b = el("button", { class: cls, title }, label);
+function button(label: string | Node, onClick: () => void, cls = "secondary", title?: string): HTMLButtonElement {
+  const b = el("button", { class: cls, title, "aria-label": title }, label);
   b.onclick = (e) => {
     e.stopPropagation();
     onClick();
   };
+  return b;
+}
+
+/** A borderless button with an icon and, optionally, a label next to it. */
+function iconButton(name: IconName, label: string | undefined, onClick: () => void, cls = "", title?: string): HTMLButtonElement {
+  const b = button(icon(name), onClick, `clickable-icon ${cls}`.trim(), title ?? label);
+  if (label) b.append(el("span", { class: "label" }, label));
   return b;
 }
 
@@ -157,7 +165,7 @@ function uniqueName(base: string, taken: string[]): string {
 
 // --- views ------------------------------------------------------------------
 
-const VIEW_ICONS: Record<string, string> = { table: "▦", cards: "▤", list: "☰", map: "◎" };
+const VIEW_ICONS: Record<string, IconName> = { table: "table", cards: "cards", list: "list", map: "map" };
 let viewMenuOpen = false;
 
 function closeViewMenu(): void {
@@ -169,27 +177,29 @@ function closeViewMenu(): void {
 /** The view picker: a dropdown with the views, their settings, and "Add view", as in Obsidian. */
 function viewSwitcher(): HTMLElement {
   const r = result!;
-  const icon = (type: string) => el("span", { class: "view-icon" }, VIEW_ICONS[type] ?? "▦");
+  const viewIcon = (type: string) => el("span", { class: "view-icon" }, icon(VIEW_ICONS[type] ?? "table"));
   const toggle = button("", () => {
     viewMenuOpen = !viewMenuOpen;
+    if (viewMenuOpen) panel = undefined;
     render();
-  }, viewMenuOpen ? "view-button open" : "view-button", "Switch view");
-  toggle.append(icon(r.views[r.viewIndex]?.type ?? "table"), el("span", { class: "view-label" }, r.view.name), el("span", { class: "chevron" }, "▾"));
+  }, viewMenuOpen || panel === "view" ? "view-button open" : "view-button", "Switch view");
+  toggle.append(viewIcon(r.views[r.viewIndex]?.type ?? "table"), el("span", { class: "view-label" }, r.view.name), el("span", { class: "chevron" }, icon("chevronDown")));
 
-  const wrap = el("div", { class: "view-switcher" }, toggle);
+  const wrap = el("div", { class: "view-switcher anchor" }, toggle);
+  if (panel === "view") wrap.append(popover(viewPanel(), "left"));
   if (!viewMenuOpen) return wrap;
 
   const items = r.views.map((v, i) => {
     const item = el("div", { class: i === r.viewIndex ? "view-item active" : "view-item", role: "menuitem", tabindex: "0", "data-key": `view-item-${i}` },
-      icon(v.type),
+      viewIcon(v.type),
       el("span", { class: "view-label" }, v.name),
-      el("span", { class: "check" }, i === r.viewIndex ? "✓" : ""),
-      button("⚙", () => {
+      el("span", { class: "check" }, ...(i === r.viewIndex ? [icon("check")] : [])),
+      iconButton("settings", undefined, () => {
         viewMenuOpen = false;
         panel = "view";
         if (i === r.viewIndex) render();
         else setUi({ viewIndex: i });
-      }, "icon", "Configure view"),
+      }, "", "Configure view"),
     );
     const choose = () => {
       viewMenuOpen = false;
@@ -202,7 +212,7 @@ function viewSwitcher(): HTMLElement {
     };
     return item;
   });
-  const add = el("div", { class: "view-item add", role: "menuitem", tabindex: "0", "data-key": "view-item-add" }, el("span", { class: "view-icon" }, "+"), el("span", { class: "view-label" }, "Add view"));
+  const add = el("div", { class: "view-item add", role: "menuitem", tabindex: "0", "data-key": "view-item-add" }, el("span", { class: "view-icon" }, icon("plus")), el("span", { class: "view-label" }, "Add view"));
   add.onclick = () => {
     viewMenuOpen = false;
     panel = "view";
@@ -223,14 +233,14 @@ function viewPanel(): HTMLElement {
     const n = Number.parseInt(v, 10);
     ops({ op: "setView", index: i, key: "limit", value: Number.isFinite(n) && n > 0 ? n : undefined });
   }, { type: "number", min: "1", placeholder: "no limit", class: "narrow" });
-  const remove = button("Delete view", () => ops({ op: "removeView", index: i }), "danger");
+  const remove = iconButton("trash", "Delete view", () => ops({ op: "removeView", index: i }), "danger");
   remove.disabled = r.views.length <= 1;
   return el("div", { class: "panel" },
-    el("div", { class: "panel-title" }, "View"),
+    el("div", { class: "panel-title" }, "View settings"),
     el("label", { class: "field" }, el("span", {}, "Name"), name),
     el("label", { class: "field" }, el("span", {}, "Result limit"), limit),
     el("div", { class: "row" },
-      button("Duplicate view", () => ops({ op: "duplicateView", index: i, name: uniqueName(`${r.view.name} copy`, r.views.map((v) => v.name)) })),
+      iconButton("copy", "Duplicate view", () => ops({ op: "duplicateView", index: i, name: uniqueName(`${r.view.name} copy`, r.views.map((v) => v.name)) })),
       remove),
   );
 }
@@ -251,14 +261,14 @@ function sortPanel(): HTMLElement {
     el("div", { class: "row" },
       select(`sort-p-${i}`, propertyOptions([s.property]), s.property, (v) => setSort(r.sort.map((x, j) => (j === i ? { ...x, property: v } : x)))),
       select(`sort-d-${i}`, [{ value: "ASC", label: "Ascending" }, { value: "DESC", label: "Descending" }], s.direction, (v) => setSort(r.sort.map((x, j) => (j === i ? { ...x, direction: v } : x)))),
-      button("×", () => setSort(r.sort.filter((_, j) => j !== i)), "icon", "Remove sort"),
+      iconButton("x", undefined, () => setSort(r.sort.filter((_, j) => j !== i)), "", "Remove sort"),
     ),
   );
   const unused = r.properties.find((p) => !r.sort.some((s) => s.property === p.id));
   return el("div", { class: "panel" },
     el("div", { class: "panel-title" }, "Sort"),
     ...(rows.length > 0 ? rows : [el("p", { class: "hint" }, "Not sorted: files appear by path.")]),
-    el("div", { class: "row" }, button("+ Add sort", () => setSort([...r.sort, { property: unused?.id ?? "file.name", direction: "ASC" }]), "link")),
+    el("div", { class: "row" }, iconButton("plus", "Add sort", () => setSort([...r.sort, { property: unused?.id ?? "file.name", direction: "ASC" }]), "add")),
   );
 }
 
@@ -324,20 +334,20 @@ function filterNode(node: FilterNode, path: number[], depth: number): HTMLElemen
     const head = el("div", { class: "row" },
       select(`${key}-conj`, CONJUNCTIONS.map((c) => ({ value: c.conj, label: c.label })), node.conj, (v: Conjunction) => updateFilter(path, (n) => ({ ...(n as FilterGroup), conj: v }))),
     );
-    if (depth > 0) head.append(button("×", () => updateFilter(path, () => null), "icon", "Remove group"));
+    if (depth > 0) head.append(iconButton("x", undefined, () => updateFilter(path, () => null), "", "Remove group"));
     return el("div", { class: depth > 0 ? "filter-group nested" : "filter-group" },
       head,
       ...node.children.map((c, i) => filterNode(c, [...path, i], depth + 1)),
       el("div", { class: "row" },
-        button("+ Add filter", () => updateFilter(path, (n) => ({ ...(n as FilterGroup), children: [...(n as FilterGroup).children, { kind: "cond", property: "file.name", op: "contains", value: "" }] })), "link"),
-        button("+ Add filter group", () => updateFilter(path, (n) => ({ ...(n as FilterGroup), children: [...(n as FilterGroup).children, { kind: "group", conj: "and", children: [] }] })), "link"),
+        iconButton("plus", "Add filter", () => updateFilter(path, (n) => ({ ...(n as FilterGroup), children: [...(n as FilterGroup).children, { kind: "cond", property: "file.name", op: "contains", value: "" }] })), "add"),
+        iconButton("plus", "Add filter group", () => updateFilter(path, (n) => ({ ...(n as FilterGroup), children: [...(n as FilterGroup).children, { kind: "group", conj: "and", children: [] }] })), "add"),
       ),
     );
   }
   if (node.kind === "expr") {
     return el("div", { class: "row" },
       textInput(`${key}-expr`, node.expr, (v) => updateFilter(path, () => ({ kind: "expr", expr: v })), { class: "expr", placeholder: 'e.g. date(due) < today() && status != "done"' }),
-      button("×", () => updateFilter(path, () => null), "icon", "Remove filter"),
+      iconButton("x", undefined, () => updateFilter(path, () => null), "", "Remove filter"),
     );
   }
   const op = OPERATORS.find((o) => o.op === node.op)!;
@@ -353,8 +363,8 @@ function filterNode(node: FilterNode, path: number[], depth: number): HTMLElemen
   );
   if (op.needsValue) row.append(textInput(`${key}-v`, node.value, (v) => updateFilter(path, (n) => ({ ...(n as Extract<FilterNode, { kind: "cond" }>), value: v })), { placeholder: "value" }));
   row.append(
-    button("</>", () => updateFilter(path, (n) => ({ kind: "expr", expr: conditionExpr(n as Extract<FilterNode, { kind: "cond" }>) })), "icon", "Edit as expression"),
-    button("×", () => updateFilter(path, () => null), "icon", "Remove filter"),
+    iconButton("code", undefined, () => updateFilter(path, (n) => ({ kind: "expr", expr: conditionExpr(n as Extract<FilterNode, { kind: "cond" }>) })), "", "Edit as expression"),
+    iconButton("x", undefined, () => updateFilter(path, () => null), "", "Remove filter"),
   );
   return row;
 }
@@ -392,7 +402,7 @@ function propertiesPanel(): HTMLElement {
     box.checked = visible;
     box.onchange = () => setOrder(visible ? order.filter((id) => id !== p.id) : [...order, p.id]);
     const li = el("li", { class: visible ? "prop visible" : "prop", title: p.id },
-      el("span", { class: "grip" }, visible ? "⋮⋮" : ""),
+      el("span", { class: "grip" }, ...(visible ? [icon("grip")] : [])),
       box,
       el("span", { class: `prop-name ns-${p.ns}` }, propLabel(p)),
     );
@@ -400,7 +410,7 @@ function propertiesPanel(): HTMLElement {
       const name = p.id.slice("formula.".length);
       li.append(
         textInput(`formula-${name}`, r.formulas[name] ?? "", (v) => v.trim() && ops({ op: "setFormula", name, expr: v.trim() }), { class: "expr small", title: "Formula" }),
-        button("×", () => ops({ op: "setFormula", name, expr: undefined }), "icon", "Delete formula"),
+        iconButton("x", undefined, () => ops({ op: "setFormula", name, expr: undefined }), "", "Delete formula"),
       );
     }
     if (visible) {
@@ -451,7 +461,7 @@ function propertiesPanel(): HTMLElement {
     el("div", { class: "panel-title" }, "Properties"),
     filterBox,
     el("ul", { class: "props" }, ...shown.filter(matchesQuery).map((p) => item(p, true)), ...hidden.filter(matchesQuery).map((p) => item(p, false))),
-    el("div", { class: "row" }, fName, fExpr, button("+ Add formula", addFormula, "link")),
+    el("div", { class: "row" }, fName, fExpr, iconButton("sigma", "Add formula", addFormula, "add")),
   );
 }
 
@@ -467,6 +477,22 @@ function togglePanel(p: Panel): void {
   render();
 }
 
+/** A floating window under its toolbar button, as Obsidian shows the view, sort, filter and properties menus. */
+function popover(content: HTMLElement, align: "left" | "right"): HTMLElement {
+  content.classList.add("popover", `align-${align}`);
+  content.prepend(iconButton("x", undefined, closePanel, "panel-close", "Close (Escape)"));
+  return content;
+}
+
+/** A toolbar button and, while it is open, its popover. */
+function tool(p: Exclude<Panel, "view" | undefined>, name: IconName, label: string, count: number, content: () => HTMLElement): HTMLElement {
+  const b = iconButton(name, label, () => togglePanel(p), panel === p ? "tool active" : "tool");
+  if (count) b.append(el("span", { class: "badge" }, String(count)));
+  const wrap = el("div", { class: "anchor" }, b);
+  if (panel === p) wrap.append(popover(content(), "right"));
+  return wrap;
+}
+
 function toolbar(): HTMLElement {
   const r = result!;
   const filters = countConditions(r.viewFilter) + countConditions(r.baseFilter);
@@ -478,14 +504,15 @@ function toolbar(): HTMLElement {
   };
   return el("div", { class: "toolbar" },
     viewSwitcher(),
-    el("span", { class: "spacer" }),
-    button(r.sort.length ? `Sort (${r.sort.length})` : "Sort", () => togglePanel("sort"), panel === "sort" ? "tool active" : "tool"),
-    button(filters ? `Filter (${filters})` : "Filter", () => togglePanel("filter"), panel === "filter" ? "tool active" : "tool"),
-    button("Properties", () => togglePanel("properties"), panel === "properties" ? "tool active" : "tool"),
-    searchBox,
     el("span", { class: "count", title: indexing?.checking ? "Showing the cached index while checking files for changes" : undefined },
-      `${r.matchCount} ${r.matchCount === 1 ? "result" : "results"}${indexing?.checking ? " · updating…" : ""}`),
-    button("YAML", () => send({ type: "openAsText" }), "tool", "Edit the .base file as text"),
+      `${r.matchCount.toLocaleString()} ${r.matchCount === 1 ? "result" : "results"}${indexing?.checking ? " · updating…" : ""}`),
+    el("span", { class: "spacer" }),
+    tool("sort", "sort", "Sort", r.sort.length, sortPanel),
+    tool("filter", "filter", "Filter", filters, filterPanel),
+    tool("properties", "properties", "Properties", 0, propertiesPanel),
+    el("label", { class: "search-box" }, icon("search"), searchBox),
+    el("span", { class: "divider" }),
+    iconButton("fileCode", undefined, () => send({ type: "openAsText" }), "tool", "Show source (YAML)"),
   );
 }
 
@@ -754,8 +781,8 @@ function table(): HTMLElement {
   };
   const head = el("tr", {}, el("th", { class: "check" }, all));
   for (const c of r.columns) {
-    const arrow = sort && sort.property === c.id ? (sort.direction === "DESC" ? " ↓" : " ↑") : "";
-    const th = el("th", { title: `${c.id} — click to sort` }, c.label + arrow);
+    const sorted = sort && sort.property === c.id;
+    const th = el("th", { title: `${c.id} — click to sort` }, el("span", { class: "th-label" }, c.label), ...(sorted ? [icon(sort.direction === "DESC" ? "arrowDown" : "arrowUp", "sort-arrow")] : []));
     th.onclick = () => ops({ op: "setView", index: r.viewIndex, key: "sort", value: nextSort(c.id) });
     head.append(th);
   }
@@ -794,9 +821,9 @@ function pager(): HTMLElement {
   const r = result!;
   const from = r.matchCount === 0 ? 0 : r.page * r.pageSize + 1;
   const to = Math.min((r.page + 1) * r.pageSize, r.matchCount);
-  const prev = button("‹ Previous", () => setUi({ page: r.page - 1 }));
+  const prev = iconButton("chevronLeft", undefined, () => setUi({ page: r.page - 1 }), "", "Previous page");
   prev.disabled = r.page === 0;
-  const next = button("Next ›", () => setUi({ page: r.page + 1 }));
+  const next = iconButton("chevronRight", undefined, () => setUi({ page: r.page + 1 }), "", "Next page");
   next.disabled = r.page >= r.pageCount - 1;
   const sizes = [25, 50, 100, 250, 500];
   if (!sizes.includes(r.pageSize)) sizes.push(r.pageSize);
@@ -827,11 +854,6 @@ function render(): void {
   const parts: HTMLElement[] = [];
   if (result) {
     parts.push(toolbar());
-    const open = panel === "view" ? viewPanel() : panel === "sort" ? sortPanel() : panel === "filter" ? filterPanel() : panel === "properties" ? propertiesPanel() : undefined;
-    if (open) {
-      open.prepend(button("×", closePanel, "icon panel-close", "Close (Escape)"));
-      parts.push(open);
-    }
   }
   if (error) parts.push(el("div", { class: "banner error" }, error));
   for (const e of result?.errors ?? []) parts.push(el("div", { class: "banner warn" }, e));
@@ -845,6 +867,7 @@ function render(): void {
     if (result.pageCount > 1 || result.matchCount > 25) parts.push(pager());
   }
   app.replaceChildren(...parts);
+  keepInView(app.querySelector<HTMLElement>(".popover"));
 
   for (const [key, value] of typed) {
     const input = app.querySelector<HTMLInputElement>(`input[data-key="${CSS.escape(key)}"]`);
@@ -856,6 +879,19 @@ function render(): void {
     if (again instanceof HTMLInputElement && caret !== null && again.type !== "checkbox" && again.type !== "number") again.setSelectionRange(caret, caret);
   }
 }
+
+/** Moves a popover left or right so all of it is inside the window. */
+function keepInView(pop: HTMLElement | null): void {
+  if (!pop) return;
+  const margin = 8;
+  const rect = pop.getBoundingClientRect();
+  let shift = 0;
+  if (rect.right > window.innerWidth - margin) shift = window.innerWidth - margin - rect.right;
+  if (rect.left + shift < margin) shift = margin - rect.left;
+  if (shift) pop.style.transform = `translateX(${Math.round(shift)}px)`;
+}
+
+window.addEventListener("resize", () => keepInView(app.querySelector<HTMLElement>(".popover")));
 
 window.addEventListener("message", (event: MessageEvent<ToWebview>) => {
   const msg = event.data;
@@ -889,8 +925,11 @@ window.addEventListener("message", (event: MessageEvent<ToWebview>) => {
 });
 
 // The view menu closes on a click elsewhere and on Escape; arrows move through it.
+// A popover closes on a click outside it and its button.
 document.addEventListener("mousedown", (e) => {
-  if (viewMenuOpen && !(e.target as HTMLElement).closest(".view-switcher")) closeViewMenu();
+  const target = e.target as HTMLElement;
+  if (viewMenuOpen && !target.closest(".view-switcher")) closeViewMenu();
+  if (panel && !target.closest(".anchor")) closePanel();
 });
 // Escape closes an open panel, unless it is cancelling a cell edit or the view menu.
 document.addEventListener("keydown", (e) => {

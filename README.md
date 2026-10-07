@@ -13,19 +13,20 @@ at once.
   right-click a folder in the Explorer. A new base is one table that lists
   every file by name. Any `*.base` file opens in the table.
 - **Views:** the view name at the top left opens the view menu: pick a view,
-  **⚙** configures one (name, result limit, duplicate, delete), *Add view*
+  the settings icon configures one (name, result limit, duplicate, delete), *Add view*
   adds a table. Arrow keys and Enter work in the menu, Escape closes it.
 - **Properties:** choose the columns, drag them into order, and add formulas
   (a name and an expression; the formula becomes a column).
 - **Filter:** *This view* filters one view, *All views* the whole base. A
   filter is a property, an operator (is, contains, is empty, >, has tag, is
   in folder, …) and a value; groups combine filters with *all*, *any* or
-  *none*. **</>** turns a filter into an expression for anything the
+  *none*. The **<>** icon turns a filter into an expression for anything the
   operators do not cover. A filter without its value does not filter yet.
 - **Sort:** add sort rules in the *Sort* menu, or click a column header
   (ascending, descending, off).
-- **Closing a menu:** the × at its top right, Escape, or its toolbar button
-  again.
+- **Menus:** *Sort*, *Filter* and *Properties* open as small windows under
+  their toolbar buttons, as in Obsidian. A click outside, the × at the top
+  right, Escape, or the button again closes one.
 - **Search and pages:** the search box searches the cells of the current
   view. The table shows 50 rows per page (`bases.pageSize`); the pager below
   changes page and page size.
@@ -43,7 +44,9 @@ at once.
   *Remove* or *Rename*. With more than one file you are asked first
   (`bases.confirmBulkEdits`); *Show Changes* opens the diff of every file.
 - **Open a file:** click its name.
-- **Edit the YAML:** *YAML* in the toolbar, or *Bases: Open Base as Text*.
+- **Edit the YAML:** the source icon at the top right of the editor (as for
+  Markdown), the source icon in the toolbar, or Cmd/Ctrl+Shift+V. The same
+  icon and keys in the YAML go back to the table.
   Everything the menus change is written to the `.base` file, in the order
   Obsidian uses, and only the lines that change are rewritten.
 

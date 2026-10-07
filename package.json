@@ -38,6 +38,18 @@
         "command": "bases.openAsText",
         "title": "Open Base as Text",
         "category": "Bases"
+      },
+      {
+        "command": "bases.showSource",
+        "title": "Show Source",
+        "category": "Bases",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "bases.showPreview",
+        "title": "Open Base",
+        "category": "Bases",
+        "icon": "$(open-preview)"
       }
     ],
     "languages": [
@@ -87,8 +99,44 @@
           "when": "explorerResourceIsFolder",
           "group": "navigation@9"
         }
+      ],
+      "editor/title": [
+        {
+          "command": "bases.showSource",
+          "when": "activeCustomEditorId == bases.editor",
+          "group": "navigation"
+        },
+        {
+          "command": "bases.showPreview",
+          "when": "resourceExtname == .base && !activeCustomEditorId",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "bases.showSource",
+          "when": "activeCustomEditorId == bases.editor"
+        },
+        {
+          "command": "bases.showPreview",
+          "when": "resourceExtname == .base && !activeCustomEditorId"
+        }
       ]
-    }
+    },
+    "keybindings": [
+      {
+        "command": "bases.showSource",
+        "key": "ctrl+shift+v",
+        "mac": "cmd+shift+v",
+        "when": "activeCustomEditorId == bases.editor"
+      },
+      {
+        "command": "bases.showPreview",
+        "key": "ctrl+shift+v",
+        "mac": "cmd+shift+v",
+        "when": "editorTextFocus && resourceExtname == .base"
+      }
+    ]
   },
   "scripts": {
     "build": "node esbuild.mjs",
