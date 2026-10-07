@@ -13,8 +13,11 @@ at once.
   right-click a folder in the Explorer. A new base is one table that lists
   every file by name. Any `*.base` file opens in the table.
 - **Views:** the view name at the top left opens the view menu: pick a view,
-  the settings icon configures one (name, result limit, duplicate, delete), *Add view*
+  the settings icon configures one (layout, name, duplicate, delete; the
+  arrow goes back to the list), *Add view*
   adds a table. Arrow keys and Enter work in the menu, Escape closes it.
+- **Result limit:** click the result count next to the view name to show
+  at most that many files in the view.
 - **Layouts:** in the view settings, *Layout* shows a view as a **Table**,
   **Cards** (one card per file), a **List**, or a **Kanban** board. A board
   groups its cards by one property (*Group by*), one lane per value; drag a

@@ -22,7 +22,7 @@ const send = (msg: FromWebview) => vscode.postMessage(msg);
 const ops = (...list: BaseOp[]) => send({ type: "baseOps", ops: list });
 const setUi = (state: Partial<UiState>) => send({ type: "ui", state });
 
-type Panel = "sort" | "filter" | "properties" | "view" | undefined;
+type Panel = "sort" | "filter" | "properties" | "view" | "results" | undefined;
 
 let result: ViewResult | undefined;
 let error: string | undefined;
@@ -237,10 +237,6 @@ function viewPanel(): HTMLElement {
   const r = result!;
   const i = r.viewIndex;
   const name = textInput("view-name", r.view.name, (v) => v.trim() && ops({ op: "setView", index: i, key: "name", value: v.trim() }));
-  const limit = textInput("view-limit", r.view.limit !== undefined ? String(r.view.limit) : "", (v) => {
-    const n = Number.parseInt(v, 10);
-    ops({ op: "setView", index: i, key: "limit", value: Number.isFinite(n) && n > 0 ? n : undefined });
-  }, { type: "number", min: "1", placeholder: "no limit", class: "narrow" });
   const remove = iconButton("trash", "Delete view", () => ops({ op: "removeView", index: i }), "danger");
   remove.disabled = r.views.length <= 1;
   const layout = select("view-layout", [
@@ -274,10 +270,26 @@ function viewPanel(): HTMLElement {
     el("label", { class: "field" }, el("span", {}, "Layout"), layout),
     ...groupBy,
     el("label", { class: "field" }, el("span", {}, "Name"), name),
-    el("label", { class: "field" }, el("span", {}, "Result limit"), limit),
     el("div", { class: "row" },
       iconButton("copy", "Duplicate view", () => ops({ op: "duplicateView", index: i, name: uniqueName(`${r.view.name} copy`, r.views.map((v) => v.name)) })),
       remove),
+  );
+}
+
+/** The window behind the result count: how many results the view shows at most. */
+function resultsPanel(): HTMLElement {
+  const r = result!;
+  const setLimit = (n: number | undefined) => ops({ op: "setView", index: r.viewIndex, key: "limit", value: n });
+  const limit = textInput("view-limit", r.view.limit !== undefined ? String(r.view.limit) : "", (v) => {
+    const n = Number.parseInt(v, 10);
+    setLimit(Number.isFinite(n) && n > 0 ? n : undefined);
+  }, { type: "number", min: "1", placeholder: "no limit", class: "narrow" });
+  const row = el("label", { class: "field" }, el("span", {}, "Limit"), limit);
+  if (r.view.limit !== undefined) row.append(iconButton("x", undefined, () => setLimit(undefined), "", "No limit"));
+  return el("div", { class: "panel" },
+    el("div", { class: "panel-title" }, "Results"),
+    row,
+    el("p", { class: "hint" }, r.view.limit !== undefined ? `Shows the first ${r.view.limit} of ${r.total.toLocaleString()} matching files.` : `All ${r.total.toLocaleString()} matching files.`),
   );
 }
 
@@ -529,6 +541,16 @@ function tool(p: Exclude<Panel, "view" | undefined>, name: IconName, label: stri
   return wrap;
 }
 
+/** "12 results": a click opens the limit of the view. */
+function resultsCount(): HTMLElement {
+  const r = result!;
+  const label = `${r.matchCount.toLocaleString()} ${r.matchCount === 1 ? "result" : "results"}${r.view.limit !== undefined ? ` (limit ${r.view.limit})` : ""}${indexing?.checking ? " · updating…" : ""}`;
+  const b = button(label, () => togglePanel("results"), panel === "results" ? "count clickable active" : "count clickable", indexing?.checking ? "Showing the cached index while checking files for changes" : "Limit the results");
+  const wrap = el("div", { class: "anchor" }, b);
+  if (panel === "results") wrap.append(popover(resultsPanel(), "left"));
+  return wrap;
+}
+
 function toolbar(): HTMLElement {
   const r = result!;
   const filters = countConditions(r.viewFilter) + countConditions(r.baseFilter);
@@ -547,8 +569,7 @@ function toolbar(): HTMLElement {
   const searchToggle = iconButton("search", undefined, () => (searchOpen ? closeSearch() : openSearch()), searchOpen || search ? "tool active" : "tool", searchOpen ? "Close search (Escape)" : "Search");
   return el("div", { class: "toolbar" },
     viewSwitcher(),
-    el("span", { class: "count", title: indexing?.checking ? "Showing the cached index while checking files for changes" : undefined },
-      `${r.matchCount.toLocaleString()} ${r.matchCount === 1 ? "result" : "results"}${indexing?.checking ? " · updating…" : ""}`),
+    resultsCount(),
     el("span", { class: "spacer" }),
     tool("sort", "sort", "Sort", r.sort.length, sortPanel),
     tool("filter", "filter", "Filter", filters, filterPanel),
