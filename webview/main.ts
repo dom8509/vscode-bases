@@ -459,7 +459,7 @@ function sortPanel(): HTMLElement {
   const setSort = (sort: SortSpec[]) => ops({ op: "setView", index: r.viewIndex, key: "sort", value: sort });
   const rows = r.sort.map((s, i) =>
     el("div", { class: "row" },
-      select(`sort-p-${i}`, propertyOptions([s.property]), s.property, (v) => setSort(r.sort.map((x, j) => (j === i ? { ...x, property: v } : x)))),
+      propertyPicker(`sort-p-${i}`, s.property, (v) => setSort(r.sort.map((x, j) => (j === i ? { ...x, property: v } : x)))),
       select(`sort-d-${i}`, [{ value: "ASC", label: "Ascending" }, { value: "DESC", label: "Descending" }], s.direction, (v) => setSort(r.sort.map((x, j) => (j === i ? { ...x, direction: v } : x)))),
       iconButton("x", undefined, () => setSort(r.sort.filter((_, j) => j !== i)), "", "Remove sort"),
     ),
