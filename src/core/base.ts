@@ -3,7 +3,7 @@
 
 import { parse } from "yaml";
 import { compare, ExprError, run, toDate, truthy, type EvalContext, type FileInfo } from "./expr";
-import { compareChapters } from "./chapters";
+import { compareGroups } from "./chapters";
 import { toModel, type FilterGroup } from "./filterModel";
 import type { FileRecord } from "./record";
 
@@ -20,6 +20,8 @@ export interface GroupBy {
   direction?: "ASC" | "DESC";
   /** Lanes the person put in order (by dragging); "" is the lane without a value. Other lanes follow, sorted. */
   order?: string[];
+  /** How a value splits into levels of headings: "." chapter numbers (the default), "/" or another text for paths, "" none. */
+  separator?: string;
 }
 
 export interface ViewConfig {
@@ -137,6 +139,7 @@ function groupByOf(view: ViewConfig): GroupBy | undefined {
       property: raw.property,
       direction: String(raw.direction).toUpperCase() === "DESC" ? "DESC" : "ASC",
       ...(Array.isArray(raw.order) ? { order: raw.order.map((x) => (x === null || x === undefined ? "" : String(x))) } : {}),
+      ...(typeof raw.separator === "string" ? { separator: raw.separator } : {}),
     }
     : undefined;
 }
@@ -322,7 +325,7 @@ export function computeView(base: BaseConfig, records: Iterable<FileRecord>, opt
   }));
   keyed.sort((a, b) => {
     if (groupFirst) {
-      const g = compareChapters(a.group, b.group);
+      const g = compareGroups(a.group, b.group, groupBy!.separator);
       if (g !== 0) return groupBy!.direction === "DESC" ? -g : g;
     }
     for (let i = 0; i < sortRefs.length; i++) {

@@ -1,16 +1,35 @@
-// Chapters: a group value like "3.2 Anmeldung" is chapter 3.2 with the
-// title "Anmeldung", under chapter 3. Rows grouped by such values read as an
-// outline: a heading for each chapter as it starts, then its rows. Values
-// that are no chapter number are plain groups, one level deep.
+// Group hierarchies: a group value can stand for several levels of headings.
+// How it splits is the view's `groupBy.separator`:
+//
+// - "." (the default): chapter numbers. "3.2 Anmeldung" is chapter 3.2 with
+//   the title "Anmeldung", under chapter 3. Values without a number in front
+//   are plain groups, one level deep.
+// - any other text, e.g. "/" or ">": paths. "Funktionen/Anmeldung" is
+//   "Anmeldung" under "Funktionen" — folders, nested tags, free text.
+// - "": no hierarchy; every value is one group.
+//
+// Rows grouped this way read as an outline: a heading for each level as it
+// starts, then the rows.
 
 import type { Row } from "./base";
 
-export interface Chapter {
-  /** "3.2", or the whole value when it is no chapter number. */
+export const CHAPTERS = ".";
+
+export interface Level {
+  /** Unique across the outline: "3.2", or "Funktionen/Anmeldung". */
   key: string;
-  /** [3, 2]; undefined for a plain group. */
-  path?: number[];
+  /** The chapter number, in chapter mode; "" otherwise. */
+  number: string;
+  /** The heading's text: a chapter title, or the path segment. */
   title: string;
+}
+
+interface Parsed {
+  levels: Level[];
+  /** Compared level by level: numbers numerically, text by name. */
+  sortKey: (number | string)[];
+  /** Chapters sort before plain groups. */
+  numbered: boolean;
 }
 
 function text(v: unknown): string {
@@ -19,27 +38,57 @@ function text(v: unknown): string {
   return String(v);
 }
 
-export function chapterOf(value: unknown): Chapter {
+const CHAPTER = /^(\d+(?:\.\d+)*)\.?(?:\s+(.*))?$/;
+
+function parse(value: unknown, separator = CHAPTERS): Parsed {
   const s = text(value).trim();
-  const m = /^(\d+(?:\.\d+)*)\.?(?:\s+(.*))?$/.exec(s);
-  if (!m) return { key: s, title: s };
-  return { key: m[1]!, path: m[1]!.split(".").map(Number), title: (m[2] ?? "").trim() };
+  if (s === "") return { levels: [{ key: "", number: "", title: "" }], sortKey: [], numbered: false };
+  if (separator === CHAPTERS) {
+    const m = CHAPTER.exec(s);
+    if (m) {
+      const nums = m[1]!.split(".");
+      return {
+        levels: nums.map((_, i) => {
+          const key = nums.slice(0, i + 1).join(".");
+          return { key, number: key, title: i === nums.length - 1 ? (m[2] ?? "").trim() : "" };
+        }),
+        sortKey: nums.map(Number),
+        numbered: true,
+      };
+    }
+  } else if (separator !== "") {
+    const segments = s.split(separator).map((x) => x.trim()).filter(Boolean);
+    if (segments.length > 0) {
+      return {
+        levels: segments.map((title, i) => ({ key: segments.slice(0, i + 1).join(separator), number: "", title })),
+        sortKey: segments,
+        numbered: false,
+      };
+    }
+  }
+  return { levels: [{ key: s, number: "", title: s }], sortKey: [s], numbered: false };
 }
 
-/** Chapters in reading order: 3 < 3.2 < 3.10 < 4; plain groups after them, by name; no value last. */
-export function compareChapters(a: unknown, b: unknown): number {
-  const x = chapterOf(a);
-  const y = chapterOf(b);
-  if ((x.key === "") !== (y.key === "")) return x.key === "" ? 1 : -1;
-  if (x.path && y.path) {
-    for (let i = 0; i < Math.max(x.path.length, y.path.length); i++) {
-      const d = (x.path[i] ?? -1) - (y.path[i] ?? -1);
-      if (d !== 0) return d;
-    }
-    return 0;
+/** The levels of a group value, outermost first. */
+export function levelsOf(value: unknown, separator?: string): Level[] {
+  return parse(value, separator).levels;
+}
+
+/** Reading order: 3 < 3.2 < 3.10 < 4, a parent before its children, plain groups after chapters, no value last. */
+export function compareGroups(a: unknown, b: unknown, separator?: string): number {
+  const x = parse(a, separator);
+  const y = parse(b, separator);
+  const xe = x.sortKey.length === 0;
+  const ye = y.sortKey.length === 0;
+  if (xe || ye) return xe === ye ? 0 : xe ? 1 : -1;
+  if (x.numbered !== y.numbered) return x.numbered ? -1 : 1;
+  for (let i = 0; i < Math.min(x.sortKey.length, y.sortKey.length); i++) {
+    const p = x.sortKey[i]!;
+    const q = y.sortKey[i]!;
+    const d = typeof p === "number" && typeof q === "number" ? p - q : String(p).localeCompare(String(q), undefined, { numeric: true });
+    if (d !== 0) return d;
   }
-  if (x.path || y.path) return x.path ? -1 : 1;
-  return x.key.localeCompare(y.key, undefined, { numeric: true });
+  return x.sortKey.length - y.sortKey.length;
 }
 
 export type OutlineItem =
@@ -47,26 +96,24 @@ export type OutlineItem =
   | { kind: "row"; row: Row };
 
 /**
- * The rows with a heading wherever a chapter starts, and headings for the
- * chapters above it that have not been shown yet. Titles come from any value
- * that names the chapter (`known`: other values of the property, e.g. "3 Funktionen").
+ * The rows with a heading wherever a level starts, and headings for the
+ * levels above it that have not been shown yet. A chapter's title comes from
+ * any value that names it (`known`: other values of the property, e.g. "3 Funktionen").
  */
-export function outline(rows: Row[], groupId: string, known: unknown[] = []): OutlineItem[] {
+export function outline(rows: Row[], groupId: string, known: unknown[] = [], separator?: string): OutlineItem[] {
   const titles = new Map<string, string>();
   for (const v of [...known, ...rows.map((r) => r.cells[groupId])]) {
-    const c = chapterOf(v);
-    if (c.path && c.title && !titles.has(c.key)) titles.set(c.key, c.title);
+    const last = levelsOf(v, separator).at(-1)!;
+    if (last.number && last.title && !titles.has(last.key)) titles.set(last.key, last.title);
   }
   const items: OutlineItem[] = [];
   let shown: string[] = [];
   for (const row of rows) {
-    const c = chapterOf(row.cells[groupId]);
-    const chain = c.path ? c.path.map((_, i) => c.path!.slice(0, i + 1).join(".")) : [c.key];
-    chain.forEach((key, level) => {
-      if (shown[level] === key) return;
-      shown = [...shown.slice(0, level), key];
-      const title = c.path ? titles.get(key) ?? "" : key || "No value";
-      items.push({ kind: "heading", level: level + 1, number: c.path ? key : "", title });
+    levelsOf(row.cells[groupId], separator).forEach((l, depth) => {
+      if (shown[depth] === l.key) return;
+      shown = [...shown.slice(0, depth), l.key];
+      const title = l.number ? titles.get(l.key) ?? "" : l.title || "No value";
+      items.push({ kind: "heading", level: depth + 1, number: l.number, title });
     });
     items.push({ kind: "row", row });
   }

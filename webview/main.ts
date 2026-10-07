@@ -266,6 +266,14 @@ function uniqueName(base: string, taken: string[]): string {
 // --- views ------------------------------------------------------------------
 
 const VIEW_ICONS: Record<string, IconName> = { table: "table", cards: "cards", list: "list", kanban: "kanban", document: "document", map: "map" };
+/** How a group value becomes levels of headings (groupBy.separator). */
+const LEVEL_RULES = [
+  { value: ".", label: "Chapter numbers (3.2.1 Title)" },
+  { value: "/", label: "Path (a/b/c)" },
+  { value: ">", label: "Arrows (a > b > c)" },
+  { value: "", label: "None (one level)" },
+];
+
 const LAYOUTS = [
   { type: "table", label: "Table" },
   { type: "cards", label: "Cards" },
@@ -419,12 +427,20 @@ function viewPanel(): HTMLElement {
         }, { disabled: r.views.length <= 1, danger: true, key: "view-delete" }))]
       : []));
 
-  // Cards are not grouped; the other layouts are, a board by lanes and the rest by headings (chapters).
+  // Cards are not grouped; the other layouts are, a board by lanes and the rest by headings.
   const groupBy = v.type !== "cards"
-    ? [el("label", { class: "field", title: "Values like 3.2 or \"3.2 Login\" read as chapters, with a heading for each" }, el("span", {}, "Group by"),
+    ? [el("label", { class: "field" }, el("span", {}, "Group by"),
       select(`view-group-${i}`, [{ value: "", label: "—" }, ...propertyOptions(v.groupBy ? [v.groupBy.property] : [])], v.groupBy?.property ?? "", (p) =>
-        ops({ op: "setView", index: i, key: "groupBy", value: p ? { property: p, direction: v.groupBy?.direction ?? "ASC" } : undefined })))]
+        ops({ op: "setView", index: i, key: "groupBy", value: p ? { ...v.groupBy, property: p, direction: v.groupBy?.direction ?? "ASC" } : undefined })))]
     : [];
+  // How a group value splits into levels of headings; a board has lanes, not levels.
+  if (v.groupBy && v.type !== "cards" && v.type !== "kanban") {
+    const sep = v.groupBy.separator ?? ".";
+    const known = LEVEL_RULES.some((l) => l.value === sep);
+    groupBy.push(el("label", { class: "field", title: "Which part of a value starts a deeper heading" }, el("span", {}, "Levels"),
+      select(`view-levels-${i}`, [...LEVEL_RULES, ...(known ? [] : [{ value: sep, label: `Split at “${sep}”` }])], sep, (s) =>
+        ops({ op: "setView", index: i, key: "groupBy", value: { ...v.groupBy!, separator: s === "." ? undefined : s } }))));
+  }
   return el("div", { class: "panel view-panel" },
     el("div", { class: "panel-head" },
       iconButton("arrowLeft", undefined, () => {
@@ -1213,7 +1229,7 @@ function content(): HTMLElement {
 /** The rows with chapter headings, when the view groups; else just the rows. */
 function grouped(rows: Row[]): OutlineItem[] {
   const g = result!.group;
-  return g ? outline(rows, g.id, g.suggestions) : rows.map((row) => ({ kind: "row", row }));
+  return g ? outline(rows, g.id, g.suggestions, result!.view.groupBy?.separator) : rows.map((row) => ({ kind: "row", row }));
 }
 
 function headingLabel(item: Extract<OutlineItem, { kind: "heading" }>): HTMLElement {

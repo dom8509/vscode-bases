@@ -252,3 +252,20 @@ describe("kanban lanes", () => {
     expect(view.view.groupBy).toEqual({ property: "status", direction: "ASC", order: ["open", "", "done"] });
   });
 });
+
+describe("group levels in the file", () => {
+  it("writes the separator into groupBy, and leaves it out for chapter numbers", () => {
+    const start = "views:\n  - type: table\n    name: T\n    groupBy:\n      property: file.folder\n";
+    const paths = updateBase(start, [{ op: "setView", index: 0, key: "groupBy", value: { property: "file.folder", direction: "ASC", separator: "/" } }]);
+    expect(parseBase(paths).views[0]!.groupBy).toEqual({ property: "file.folder", direction: "ASC", separator: "/" });
+    const back = updateBase(paths, [{ op: "setView", index: 0, key: "groupBy", value: { property: "file.folder", direction: "ASC", separator: undefined } }]);
+    expect(back).not.toContain("separator");
+  });
+
+  it("groups folders as nested headings, in path order", () => {
+    const base = parseBase("views:\n  - type: table\n    name: T\n    groupBy:\n      property: file.folder\n      separator: /\n");
+    const view = computeView(base, records, { viewIndex: 0 });
+    expect(view.view.groupBy?.separator).toBe("/");
+    expect(view.rows.map((r) => r.path)).toEqual(["deploy/app.yaml", "notes/idea.md", "projects/alpha.md", "projects/beta.md", "projects/gamma.md"]);
+  });
+});

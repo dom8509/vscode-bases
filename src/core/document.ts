@@ -33,9 +33,9 @@ export function entryParts(columns: Column[], row: Row, groupId?: string): { tit
 }
 
 /** Markdown of the whole view; `known` are other values of the group, for chapter titles. */
-export function documentMarkdown(name: string, columns: Column[], rows: Row[], group?: Column): string {
+export function documentMarkdown(name: string, columns: Column[], rows: Row[], group?: Column, separator?: string): string {
   const out = [`# ${name}`, ""];
-  const items = group ? outline(rows, group.id, group.suggestions) : rows.map((row) => ({ kind: "row" as const, row }));
+  const items = group ? outline(rows, group.id, group.suggestions, separator) : rows.map((row) => ({ kind: "row" as const, row }));
   let depth = 1;
   for (const item of items) {
     if (item.kind === "heading") {

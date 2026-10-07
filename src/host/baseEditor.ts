@@ -232,7 +232,7 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
               out = `\uFEFF${toDelimited(sheetColumns, all.rows, ",")}`;
             } else {
               await withBodies(all.rows);
-              const markdown = documentMarkdown(`${baseName} – ${all.view.name}`, all.columns, all.rows, all.group);
+              const markdown = documentMarkdown(`${baseName} – ${all.view.name}`, all.columns, all.rows, all.group, all.view.groupBy?.separator);
               out = msg.to === "markdown" ? markdown : documentHtml(`${baseName} – ${all.view.name}`, markdown);
             }
             await vscode.workspace.fs.writeFile(target, typeof out === "string" ? new TextEncoder().encode(out) : out);

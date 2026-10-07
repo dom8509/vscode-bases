@@ -31,11 +31,18 @@ at once.
   **Document**: every file with its title, its properties in one line and
   the text of the note below them, read like one document. Click a title to
   edit the note.
-- **Group by and chapters:** *Group by* in the view settings groups a table,
-  list or document under a heading per value. Values that are chapter
-  numbers — `3.2` or `3.2 Anmeldung` — read as chapters: they sort as
-  3 < 3.2 < 3.10 < 4, and chapter 3.2 sits under chapter 3. A chapter's title
-  is taken from any value that names it (`3 Funktionen`). A board
+- **Group by and levels:** *Group by* in the view settings groups a table,
+  list or document under a heading per value. *Levels* says how a value
+  splits into nested headings (`groupBy.separator` in the file):
+  - *Chapter numbers* (the default): `3.2` or `3.2 Anmeldung` is chapter 3.2
+    under chapter 3; they sort as 3 < 3.2 < 3.10 < 4, and a chapter's title
+    is taken from any value that names it (`3 Funktionen`).
+  - *Path* (`/`) or *Arrows* (`>`): `Funktionen/Anmeldung` is "Anmeldung"
+    under "Funktionen" — group by `file.folder` for a folder tree, or by
+    nested tags. Any other separator can be written in the file.
+  - *None*: one heading per value.
+
+  A board
   groups its cards by one property (*Group by*), one lane per value; drag a
   card to another lane to change that value in its file. Drag a lane by its
   header to move it; the order is kept in the view (`groupBy.order`). Cards and list
