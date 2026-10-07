@@ -1085,3 +1085,35 @@ button.filter-section-head:hover {
 .filter-section.open > .filter-group {
   margin: 4px 0 6px 20px;
 }
+
+/* Each filter starts with how it joins the others: "Where", "and", "or", "and not". */
+.filter-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.filter-line.has-group {
+  align-items: flex-start;
+}
+
+.filter-line.has-group > .conj-word {
+  padding-top: 10px;
+}
+
+.filter-line > .filter-group.nested {
+  flex: 1;
+  margin-left: 0;
+}
+
+.conj-word {
+  flex: none;
+  width: 52px;
+  text-align: right;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* Room for the link words in nested groups. */
+.popover.filter-panel {
+  max-width: min(860px, calc(100vw - 16px));
+}

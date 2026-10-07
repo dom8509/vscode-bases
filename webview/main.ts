@@ -435,6 +435,12 @@ function operatorsFor(property: string): { value: Operator; label: string }[] {
   return OPERATORS.filter((o) => !o.only || o.only === property).map((o) => ({ value: o.op, label: o.label }));
 }
 
+/** The word before a filter that says how it joins the ones before it. */
+function linkWord(conj: Conjunction, index: number): string {
+  if (conj === "not") return index === 0 ? "Not" : "and not";
+  return index === 0 ? "Where" : conj;
+}
+
 function filterNode(scope: FilterScope, node: FilterNode, path: number[], depth: number): HTMLElement {
   const key = `f-${scope}-${path.join(".")}`;
   if (node.kind === "group") {
@@ -444,7 +450,9 @@ function filterNode(scope: FilterScope, node: FilterNode, path: number[], depth:
     if (depth > 0) head.append(iconButton("x", undefined, () => updateFilter(scope, path, () => null), "", "Remove group"));
     return el("div", { class: depth > 0 ? "filter-group nested" : "filter-group" },
       head,
-      ...node.children.map((c, i) => filterNode(scope, c, [...path, i], depth + 1)),
+      ...node.children.map((c, i) => el("div", { class: c.kind === "group" ? "filter-line has-group" : "filter-line" },
+        el("span", { class: "conj-word" }, linkWord(node.conj, i)),
+        filterNode(scope, c, [...path, i], depth + 1))),
       el("div", { class: "row" },
         iconButton("plus", "Add filter", () => updateFilter(scope, path, (n) => ({ ...(n as FilterGroup), children: [...(n as FilterGroup).children, { kind: "cond", property: "file.name", op: "contains", value: "" }] })), "add"),
         iconButton("plus", "Add filter group", () => updateFilter(scope, path, (n) => ({ ...(n as FilterGroup), children: [...(n as FilterGroup).children, { kind: "group", conj: "and", children: [] }] })), "add"),
@@ -491,7 +499,7 @@ function filterPanel(): HTMLElement {
     head.append(el("span", { class: "chevron" }, icon(open ? "chevronDown" : "chevronRight")), el("span", { class: "filter-section-label" }, label), ...(count ? [el("span", { class: "badge" }, String(count))] : []));
     return el("div", { class: open ? "filter-section open" : "filter-section" }, head, ...(open ? [filterNode(scope, group, [], 0)] : []));
   };
-  return el("div", { class: "panel" },
+  return el("div", { class: "panel filter-panel" },
     el("div", { class: "panel-title" }, "Filters"),
     section("base", "All views"),
     section("view", "This view"),
