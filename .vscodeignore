@@ -2,6 +2,7 @@
 !dist/extension.js
 !dist/webview.js
 !webview/style.css
+!media/icon.png
 !package.json
 !README.md
 !LICENSE

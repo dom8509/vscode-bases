@@ -4,6 +4,7 @@
   "description": "Obsidian-Bases-style workbench for the metadata of Markdown and YAML files in your workspace.",
   "version": "0.1.0",
   "publisher": "dom8509",
+  "icon": "media/icon.png",
   "license": "MIT",
   "repository": {
     "type": "git",
