@@ -126,8 +126,21 @@ export interface PropertyInfo {
   ns: PropertyRef["ns"];
 }
 
+/** A view's groupBy as written, tidied: a bare property name, a direction in any case. */
+function groupByOf(view: ViewConfig): GroupBy | undefined {
+  const raw = typeof view.groupBy === "string" ? { property: view.groupBy } : view.groupBy;
+  return raw && typeof raw.property === "string" && raw.property
+    ? {
+      property: raw.property,
+      direction: String(raw.direction).toUpperCase() === "DESC" ? "DESC" : "ASC",
+      ...(Array.isArray(raw.order) ? { order: raw.order.map((x) => (x === null || x === undefined ? "" : String(x))) } : {}),
+    }
+    : undefined;
+}
+
 export interface ViewResult {
-  views: { name: string; type: string }[];
+  /** Every view, enough to show and change its settings without switching to it. */
+  views: { name: string; type: string; groupBy?: GroupBy }[];
   viewIndex: number;
   /** The selected view as written in the base. */
   view: { name: string; type: string; order: string[]; sort: SortSpec[]; limit?: number; groupBy?: GroupBy };
@@ -276,14 +289,7 @@ export function computeView(base: BaseConfig, records: Iterable<FileRecord>, opt
   // A view without columns lists its files by name.
   const order = Array.isArray(view.order) && view.order.length > 0 ? view.order.map(String) : ["file.name"];
   const refs = order.map(propertyRef);
-  const rawGroup = typeof view.groupBy === "string" ? { property: view.groupBy } : view.groupBy;
-  const groupBy: GroupBy | undefined = rawGroup && typeof rawGroup.property === "string" && rawGroup.property
-    ? {
-      property: rawGroup.property,
-      direction: String(rawGroup.direction).toUpperCase() === "DESC" ? "DESC" : "ASC",
-      ...(Array.isArray(rawGroup.order) ? { order: rawGroup.order.map((x) => (x === null || x === undefined ? "" : String(x))) } : {}),
-    }
-    : undefined;
+  const groupBy = groupByOf(view);
   const groupRef = groupBy && propertyRef(groupBy.property);
   // The group's values travel with the cells, also when it is not a column.
   const cellRefs = groupRef && !refs.some((r) => r.id === groupRef.id) ? [...refs, groupRef] : refs;
@@ -363,7 +369,7 @@ export function computeView(base: BaseConfig, records: Iterable<FileRecord>, opt
   ].map((ref) => ({ id: ref.id, label: label(base, ref), ns: ref.ns }));
 
   return {
-    views: base.views.map((v) => ({ name: v.name, type: v.type })),
+    views: base.views.map((v) => ({ name: v.name, type: v.type, ...(groupByOf(v) ? { groupBy: groupByOf(v) } : {}) })),
     viewIndex,
     view: { name: view.name, type: view.type, order, sort, limit: typeof view.limit === "number" ? view.limit : undefined, groupBy },
     group: groupRef && columnOf(groupRef),

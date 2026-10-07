@@ -1196,3 +1196,24 @@ th.drop-before {
 th.drop-after {
   box-shadow: inset -2px 0 0 var(--vscode-focusBorder);
 }
+
+/* --- view list: the shown view is highlighted, the default one says so, every view has its settings arrow --- */
+
+.view-menu .view-item.active {
+  font-weight: 600;
+  background: var(--vscode-list-inactiveSelectionBackground, var(--vscode-list-hoverBackground));
+}
+
+.view-default {
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.view-item button.clickable-icon.view-config {
+  visibility: visible;
+  color: var(--vscode-descriptionForeground);
+}
+
+.view-item button.clickable-icon.view-config:hover {
+  color: var(--vscode-foreground);
+}

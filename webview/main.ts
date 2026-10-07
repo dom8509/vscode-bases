@@ -270,6 +270,8 @@ const LAYOUTS = [
   { type: "kanban", label: "Kanban" },
 ] as const;
 let viewMenuOpen = false;
+/** The view whose settings are open; not always the one shown. */
+let configIndex = 0;
 /** A small menu open inside the view settings: the layout picker or the "…" menu. */
 let viewSubmenu: "layout" | "more" | undefined;
 
@@ -322,16 +324,18 @@ function viewSwitcher(): HTMLElement {
   if (!viewMenuOpen) return wrap;
 
   const items = r.views.map((v, i) => {
+    // The first view is the default: the one the base opens with.
     const item = el("div", { class: i === r.viewIndex ? "view-item active" : "view-item", role: "menuitem", tabindex: "0", "data-key": `view-item-${i}` },
       viewIcon(v.type),
       el("span", { class: "view-label" }, v.name),
-      el("span", { class: "check" }, ...(i === r.viewIndex ? [icon("check")] : [])),
-      iconButton("settings", undefined, () => {
+      ...(i === 0 && r.views.length > 1 ? [el("span", { class: "view-default", title: "The view this base opens with" }, "Default")] : []),
+      iconButton("chevronRight", undefined, () => {
+        // Only the settings open; the view shown stays.
         viewMenuOpen = false;
         panel = "view";
-        if (i === r.viewIndex) render();
-        else setUi({ viewIndex: i });
-      }, "", "Configure view"),
+        configIndex = i;
+        render();
+      }, "view-config", "View settings"),
     );
     const choose = () => {
       viewMenuOpen = false;
@@ -348,6 +352,7 @@ function viewSwitcher(): HTMLElement {
   add.onclick = () => {
     viewMenuOpen = false;
     panel = "view";
+    configIndex = r.views.length;
     ops({ op: "addView", name: uniqueName("Table", r.views.map((v) => v.name)) });
   };
   add.onkeydown = (e) => {
@@ -359,14 +364,15 @@ function viewSwitcher(): HTMLElement {
 
 function viewPanel(): HTMLElement {
   const r = result!;
-  const i = r.viewIndex;
-  const name = textInput("view-name", r.view.name, (v) => v.trim() && ops({ op: "setView", index: i, key: "name", value: v.trim() }));
+  const i = Math.min(configIndex, r.views.length - 1);
+  const v = r.views[i]!;
+  const name = textInput(`view-name-${i}`, v.name, (v) => v.trim() && ops({ op: "setView", index: i, key: "name", value: v.trim() }));
   const setLayout = (type: string) => {
-    if (type === r.view.type) return render();
+    if (type === v.type) return render();
     const change: BaseOp[] = [{ op: "setView", index: i, key: "type", value: type }];
     // A board needs something to group by: the first property that is not the file's.
-    if (type === "kanban" && !r.view.groupBy) {
-      const first = r.columns.find((c) => c.editable)?.id ?? r.propertyNames[0];
+    if (type === "kanban" && !v.groupBy) {
+      const first = (i === r.viewIndex ? r.columns.find((c) => c.editable)?.id : undefined) ?? r.propertyNames[0];
       if (first) change.push({ op: "setView", index: i, key: "groupBy", value: { property: first } });
     }
     ops(...change);
@@ -374,32 +380,43 @@ function viewPanel(): HTMLElement {
   const layouts: { type: string; label: string }[] = [
     ...LAYOUTS,
     // A layout this extension does not draw (e.g. Obsidian's map) stays chosen; it shows as a table.
-    ...(LAYOUTS.some((l) => l.type === r.view.type) ? [] : [{ type: r.view.type, label: `${r.view.type} (shown as table)` }]),
+    ...(LAYOUTS.some((l) => l.type === v.type) ? [] : [{ type: v.type, label: `${v.type} (shown as table)` }]),
   ];
-  const current = layouts.find((l) => l.type === r.view.type)!;
+  const current = layouts.find((l) => l.type === v.type)!;
   const layoutButton = button("", () => toggleSubmenu("layout"), viewSubmenu === "layout" ? "layout-button open" : "layout-button", "Layout");
   layoutButton.dataset.key = "view-layout";
   layoutButton.append(el("span", { class: "view-icon" }, icon(VIEW_ICONS[current.type] ?? "table")), el("span", { class: "view-label" }, current.label), el("span", { class: "chevron" }, icon("chevronDown")));
   const layout = el("div", { class: "submenu-anchor" }, layoutButton,
     ...(viewSubmenu === "layout"
       ? [el("div", { class: "view-menu", role: "menu" }, ...layouts.map((l) =>
-        menuItem(VIEW_ICONS[l.type] ?? "table", l.label, () => setLayout(l.type), { checked: l.type === r.view.type, key: `layout-${l.type}` })))]
+        menuItem(VIEW_ICONS[l.type] ?? "table", l.label, () => setLayout(l.type), { checked: l.type === v.type, key: `layout-${l.type}` })))]
       : []));
 
   const more = el("div", { class: "submenu-anchor view-more" },
     iconButton("more", undefined, () => toggleSubmenu("more"), viewSubmenu === "more" ? "active" : "", "More view options"),
     ...(viewSubmenu === "more"
       ? [el("div", { class: "view-menu align-right", role: "menu" },
-        menuItem("star", i === 0 ? "Default view" : "Set as default view", () => ops({ op: "moveView", index: i, to: 0 }), { disabled: i === 0, key: "view-default" }),
-        menuItem("copy", "Duplicate view", () => ops({ op: "duplicateView", index: i, name: uniqueName(`${r.view.name} copy`, r.views.map((v) => v.name)) }), { key: "view-duplicate" }),
+        menuItem("star", i === 0 ? "Default view" : "Set as default view", () => {
+          configIndex = 0;
+          ops({ op: "moveView", index: i, to: 0 });
+        }, { disabled: i === 0, key: "view-default" }),
+        menuItem("copy", "Duplicate view", () => {
+          configIndex = i + 1;
+          ops({ op: "duplicateView", index: i, name: uniqueName(`${v.name} copy`, r.views.map((x) => x.name)) });
+        }, { key: "view-duplicate" }),
         el("div", { class: "menu-sep" }),
-        menuItem("trash", "Delete view", () => ops({ op: "removeView", index: i }), { disabled: r.views.length <= 1, danger: true, key: "view-delete" }))]
+        menuItem("trash", "Delete view", () => {
+          // Back to the list: the view is gone.
+          panel = undefined;
+          viewMenuOpen = true;
+          ops({ op: "removeView", index: i });
+        }, { disabled: r.views.length <= 1, danger: true, key: "view-delete" }))]
       : []));
 
-  const groupBy = r.view.type === "kanban"
+  const groupBy = v.type === "kanban"
     ? [el("label", { class: "field" }, el("span", {}, "Group by"),
-      select("view-group", [{ value: "", label: "—" }, ...propertyOptions(r.view.groupBy ? [r.view.groupBy.property] : [])], r.view.groupBy?.property ?? "", (v) =>
-        ops({ op: "setView", index: i, key: "groupBy", value: v ? { property: v, direction: r.view.groupBy?.direction ?? "ASC" } : undefined })))]
+      select(`view-group-${i}`, [{ value: "", label: "—" }, ...propertyOptions(v.groupBy ? [v.groupBy.property] : [])], v.groupBy?.property ?? "", (p) =>
+        ops({ op: "setView", index: i, key: "groupBy", value: p ? { property: p, direction: v.groupBy?.direction ?? "ASC" } : undefined })))]
     : [];
   return el("div", { class: "panel view-panel" },
     el("div", { class: "panel-head" },
@@ -409,7 +426,7 @@ function viewPanel(): HTMLElement {
         viewSubmenu = undefined;
         viewMenuOpen = true;
         render();
-        app.querySelector<HTMLElement>(".view-item.active")?.focus();
+        app.querySelector<HTMLElement>(`[data-key="view-item-${i}"]`)?.focus();
       }, "back", "Back to views"),
       el("span", { class: "panel-title" }, "View settings")),
     more,
