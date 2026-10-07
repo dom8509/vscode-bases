@@ -6,6 +6,7 @@ import * as vscode from "vscode";
 import { computeView, DEFAULT_PAGE_SIZE, parseBase } from "../core/base";
 import { updateBase, type BaseOp } from "../core/baseEdit";
 import { toDelimited } from "../core/export";
+import { newNote, noteText } from "../core/newNote";
 import { parseInputValue, textChange, type PropertyEdit } from "../core/writer";
 import type { EditTarget, FromWebview, ToWebview, UiEdit, UiState } from "../protocol";
 import { applyPropertyEdits } from "./edits";
@@ -146,6 +147,9 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
           case "open":
             await vscode.window.showTextDocument(vscode.Uri.parse(msg.uri), { preview: true, viewColumn: vscode.ViewColumn.Beside });
             break;
+          case "newNote":
+            await this.createNote(document, ui.viewIndex, post);
+            break;
           case "export": {
             const all = computeView(parseBase(document.getText()), this.index.all(), { ...ui, page: 0, pageSize: Number.MAX_SAFE_INTEGER, thisFile: await thisFile() });
             const files = `${all.rows.length} ${all.rows.length === 1 ? "row" : "rows"}`;
@@ -185,6 +189,40 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
       clearTimeout(timer);
       for (const s of subscriptions) s.dispose();
     });
+  }
+
+  /** Asks for a name, writes the note in the folder of `bases.newNoteFolder` (or the view's), and opens it. */
+  private async createNote(document: vscode.TextDocument, viewIndex: number, post: (msg: ToWebview) => void): Promise<void> {
+    const root = vscode.workspace.getWorkspaceFolder(document.uri)?.uri ?? vscode.workspace.workspaceFolders?.[0]?.uri;
+    if (!root) {
+      post({ type: "notice", message: "Open a folder first: a new note goes into the workspace." });
+      return;
+    }
+    const note = newNote(parseBase(document.getText()), viewIndex);
+    const setting = vscode.workspace.getConfiguration("bases").get<string>("newNoteFolder", "").trim().replace(/^[/\\]+|[/\\]+$/g, "");
+    const folderPath = note.folder ?? setting;
+    const folder = folderPath ? vscode.Uri.joinPath(root, ...folderPath.split(/[/\\]/)) : root;
+
+    const exists = (uri: vscode.Uri) => vscode.workspace.fs.stat(uri).then(() => true, () => false);
+    const fileFor = (name: string) => vscode.Uri.joinPath(folder, /\.(md|markdown)$/i.test(name) ? name : `${name}.md`);
+    let suggestion = "Untitled";
+    for (let i = 2; await exists(fileFor(suggestion)); i++) suggestion = `Untitled ${i}`;
+    const where = folderPath ? `${folderPath}/` : "the workspace folder";
+    const name = await vscode.window.showInputBox({
+      title: "New note",
+      prompt: `Name of the note, in ${where}`,
+      value: suggestion,
+      validateInput: async (v) => {
+        if (!v.trim()) return "Give the note a name.";
+        if (/[\\/:*?"<>|]/.test(v)) return "A name cannot contain \\ / : * ? \" < > |";
+        return (await exists(fileFor(v.trim()))) ? `${v.trim()} already exists.` : undefined;
+      },
+    });
+    if (!name) return;
+    const uri = fileFor(name.trim());
+    await vscode.workspace.fs.createDirectory(folder);
+    await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(noteText(note.properties)));
+    await vscode.window.showTextDocument(uri, { preview: false, viewColumn: vscode.ViewColumn.Beside });
   }
 
   private html(webview: vscode.Webview): string {

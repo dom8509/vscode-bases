@@ -97,6 +97,11 @@
           "default": 50,
           "minimum": 1,
           "description": "Rows per page in a base's table."
+        },
+        "bases.newNoteFolder": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Folder that **+ New** in a base creates notes in, relative to the workspace folder. Empty: the workspace folder itself. A view that filters on `file.inFolder(\u2026)` uses that folder instead, so the note shows in it."
         }
       }
     },

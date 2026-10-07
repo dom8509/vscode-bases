@@ -60,6 +60,12 @@ at once.
   *Remove* or *Rename*. With more than one file you are asked first
   (`bases.confirmBulkEdits`); *Show Changes* opens the diff of every file.
 - **Open a file:** click its name.
+- **New note:** *+ New* at the top right asks for a name, creates the note
+  and opens it. It goes into `bases.newNoteFolder` (relative to the
+  workspace folder; empty, the default, is the workspace folder itself), or
+  into the folder the view filters on with *is in folder*. Values the
+  view's filters require (*is*, *has tag*, in "all of" groups) are filled
+  in, so the note shows in the view.
 - **Edit the YAML:** the source icon at the top right of the editor (as for
   Markdown) or Cmd/Ctrl+Shift+V. The same
   icon and keys in the YAML go back to the table.

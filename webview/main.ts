@@ -585,6 +585,7 @@ function toolbar(): HTMLElement {
     tool("properties", "properties", "Properties", 0, propertiesPanel),
     ...(searchOpen ? [el("label", { class: "search-box" }, searchBox)] : []),
     searchToggle,
+    iconButton("plus", "New", () => send({ type: "newNote" }), "tool new", "New note"),
   );
 }
 

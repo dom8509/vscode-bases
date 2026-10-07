@@ -989,3 +989,9 @@ ul.list {
 .lane .card.dragging {
   opacity: 0.5;
 }
+
+button.clickable-icon.new {
+  margin-left: 4px;
+  color: var(--vscode-foreground);
+  border: 1px solid var(--vscode-panel-border);
+}
