@@ -25,12 +25,6 @@ body {
   background: var(--vscode-editorWidget-background);
 }
 
-.tabs {
-  display: flex;
-  gap: 2px;
-  margin-right: auto;
-}
-
 button {
   font: inherit;
   padding: 3px 10px;
@@ -351,4 +345,92 @@ li.prop:hover {
   gap: 8px;
   padding: 6px 10px;
   border-top: 1px solid var(--vscode-panel-border);
+}
+
+/* --- view switcher (dropdown) --- */
+
+.view-switcher {
+  position: relative;
+}
+
+button.view-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--vscode-foreground);
+  background: transparent;
+}
+
+button.view-button:hover,
+button.view-button.open {
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-button-secondaryBackground));
+}
+
+.chevron {
+  font-size: 10px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.view-icon {
+  width: 14px;
+  text-align: center;
+  color: var(--vscode-descriptionForeground);
+}
+
+.view-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 10;
+  min-width: 220px;
+  padding: 4px;
+  border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border));
+  border-radius: 4px;
+  color: var(--vscode-menu-foreground, var(--vscode-foreground));
+  background: var(--vscode-menu-background, var(--vscode-editorWidget-background));
+  box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+}
+
+.view-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.view-item:hover,
+.view-item:focus {
+  outline: none;
+  color: var(--vscode-menu-selectionForeground, var(--vscode-foreground));
+  background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground));
+}
+
+.view-item .view-label {
+  flex: 1;
+  white-space: nowrap;
+}
+
+.view-item .check {
+  width: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.view-item button.icon {
+  visibility: hidden;
+  padding: 0 4px;
+}
+
+.view-item:hover button.icon,
+.view-item:focus button.icon,
+.view-item.active button.icon {
+  visibility: visible;
+}
+
+.menu-sep {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--vscode-menu-separatorBackground, var(--vscode-panel-border));
 }

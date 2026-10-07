@@ -12,8 +12,9 @@ at once.
 - **Create a base:** run *Bases: New Base* from the Command Palette, or
   right-click a folder in the Explorer. A new base is one table that lists
   every file by name. Any `*.base` file opens in the table.
-- **Views:** the tabs switch views; **+** adds one, **⋯** renames it, sets a
-  result limit, duplicates or deletes it.
+- **Views:** the view name at the top left opens the view menu: pick a view,
+  **⚙** configures one (name, result limit, duplicate, delete), *Add view*
+  adds a table. Arrow keys and Enter work in the menu, Escape closes it.
 - **Properties:** choose the columns, drag them into order, and add formulas
   (a name and an expression; the formula becomes a column).
 - **Filter:** *This view* filters one view, *All views* the whole base. A

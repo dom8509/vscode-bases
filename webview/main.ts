@@ -120,21 +120,62 @@ function uniqueName(base: string, taken: string[]): string {
 
 // --- views ------------------------------------------------------------------
 
-function viewTabs(): HTMLElement {
+const VIEW_ICONS: Record<string, string> = { table: "▦", cards: "▤", list: "☰", map: "◎" };
+let viewMenuOpen = false;
+
+function closeViewMenu(): void {
+  if (!viewMenuOpen) return;
+  viewMenuOpen = false;
+  render();
+}
+
+/** The view picker: a dropdown with the views, their settings, and "Add view", as in Obsidian. */
+function viewSwitcher(): HTMLElement {
   const r = result!;
-  const tabs = el("div", { class: "tabs" });
-  r.views.forEach((v, i) => {
-    const b = button(v.name, () => setUi({ viewIndex: i }), i === r.viewIndex ? "tab active" : "tab", v.type);
-    tabs.append(b);
+  const icon = (type: string) => el("span", { class: "view-icon" }, VIEW_ICONS[type] ?? "▦");
+  const toggle = button("", () => {
+    viewMenuOpen = !viewMenuOpen;
+    render();
+  }, viewMenuOpen ? "view-button open" : "view-button", "Switch view");
+  toggle.append(icon(r.views[r.viewIndex]?.type ?? "table"), el("span", { class: "view-label" }, r.view.name), el("span", { class: "chevron" }, "▾"));
+
+  const wrap = el("div", { class: "view-switcher" }, toggle);
+  if (!viewMenuOpen) return wrap;
+
+  const items = r.views.map((v, i) => {
+    const item = el("div", { class: i === r.viewIndex ? "view-item active" : "view-item", role: "menuitem", tabindex: "0", "data-key": `view-item-${i}` },
+      icon(v.type),
+      el("span", { class: "view-label" }, v.name),
+      el("span", { class: "check" }, i === r.viewIndex ? "✓" : ""),
+      button("⚙", () => {
+        viewMenuOpen = false;
+        panel = "view";
+        if (i === r.viewIndex) render();
+        else setUi({ viewIndex: i });
+      }, "icon", "Configure view"),
+    );
+    const choose = () => {
+      viewMenuOpen = false;
+      if (i === r.viewIndex) render();
+      else setUi({ viewIndex: i });
+    };
+    item.onclick = choose;
+    item.onkeydown = (e) => {
+      if (e.key === "Enter") choose();
+    };
+    return item;
   });
-  tabs.append(
-    button("+", () => {
-      ops({ op: "addView", name: uniqueName("Table", r.views.map((v) => v.name)) });
-      panel = "view";
-    }, "tab icon", "Add view"),
-    button("⋯", () => togglePanel("view"), panel === "view" ? "tab icon active" : "tab icon", "View settings"),
-  );
-  return tabs;
+  const add = el("div", { class: "view-item add", role: "menuitem", tabindex: "0", "data-key": "view-item-add" }, el("span", { class: "view-icon" }, "+"), el("span", { class: "view-label" }, "Add view"));
+  add.onclick = () => {
+    viewMenuOpen = false;
+    panel = "view";
+    ops({ op: "addView", name: uniqueName("Table", r.views.map((v) => v.name)) });
+  };
+  add.onkeydown = (e) => {
+    if (e.key === "Enter") add.click();
+  };
+  wrap.append(el("div", { class: "view-menu", role: "menu" }, ...items, el("div", { class: "menu-sep" }), add));
+  return wrap;
 }
 
 function viewPanel(): HTMLElement {
@@ -394,7 +435,7 @@ function toolbar(): HTMLElement {
     searchTimer = window.setTimeout(() => setUi({ query: search }), 200);
   };
   return el("div", { class: "toolbar" },
-    viewTabs(),
+    viewSwitcher(),
     el("span", { class: "spacer" }),
     button(r.sort.length ? `Sort (${r.sort.length})` : "Sort", () => togglePanel("sort"), panel === "sort" ? "tool active" : "tool"),
     button(filters ? `Filter (${filters})` : "Filter", () => togglePanel("filter"), panel === "filter" ? "tool active" : "tool"),
@@ -620,6 +661,25 @@ window.addEventListener("message", (event: MessageEvent<ToWebview>) => {
       }, 3000);
       render();
       break;
+  }
+});
+
+// The view menu closes on a click elsewhere and on Escape; arrows move through it.
+document.addEventListener("mousedown", (e) => {
+  if (viewMenuOpen && !(e.target as HTMLElement).closest(".view-switcher")) closeViewMenu();
+});
+document.addEventListener("keydown", (e) => {
+  if (!viewMenuOpen) return;
+  if (e.key === "Escape") {
+    closeViewMenu();
+    return;
+  }
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    const items = [...app.querySelectorAll<HTMLElement>(".view-item")];
+    const at = items.indexOf(document.activeElement as HTMLElement);
+    const next = e.key === "ArrowDown" ? (at + 1) % items.length : (at - 1 + items.length) % items.length;
+    items[next]?.focus();
   }
 });
 
