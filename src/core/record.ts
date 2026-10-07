@@ -51,6 +51,15 @@ export function yamlRegion(text: string, kind: SourceKind): YamlRegion {
   return { start, end: start + m.index, exists: true, eol };
 }
 
+/** The text of a Markdown file after its frontmatter; a YAML file has none. */
+export function bodyText(text: string, kind: SourceKind): string {
+  if (kind === "yaml") return "";
+  const region = yamlRegion(text, kind);
+  if (!region.exists) return text.replace(/^\uFEFF/, "");
+  const rest = text.slice(region.end);
+  return rest.replace(/^(?:---|\.\.\.)[ \t]*\r?\n?/, "").replace(/^\s*\n/, "");
+}
+
 function tagsOf(properties: Record<string, unknown>): string[] {
   const raw = properties.tags ?? properties.tag;
   const list = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split(/[,\s]+/) : [];

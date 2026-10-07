@@ -13,6 +13,9 @@ import {
   type FilterNode,
   type Operator,
 } from "../src/core/filterModel";
+import MarkdownIt from "markdown-it";
+import { outline, type OutlineItem } from "../src/core/chapters";
+import { entryParts } from "../src/core/document";
 import { icon, type IconName } from "./icons";
 import type { BaseOp, EditTarget, FromWebview, IndexProgress, SortSpec, ToWebview, UiEdit, UiState, ViewResult } from "../src/protocol";
 
@@ -262,12 +265,13 @@ function uniqueName(base: string, taken: string[]): string {
 
 // --- views ------------------------------------------------------------------
 
-const VIEW_ICONS: Record<string, IconName> = { table: "table", cards: "cards", list: "list", kanban: "kanban", map: "map" };
+const VIEW_ICONS: Record<string, IconName> = { table: "table", cards: "cards", list: "list", kanban: "kanban", document: "document", map: "map" };
 const LAYOUTS = [
   { type: "table", label: "Table" },
   { type: "cards", label: "Cards" },
   { type: "list", label: "List" },
   { type: "kanban", label: "Kanban" },
+  { type: "document", label: "Document" },
 ] as const;
 let viewMenuOpen = false;
 /** The view whose settings are open; not always the one shown. */
@@ -415,8 +419,9 @@ function viewPanel(): HTMLElement {
         }, { disabled: r.views.length <= 1, danger: true, key: "view-delete" }))]
       : []));
 
-  const groupBy = v.type === "kanban"
-    ? [el("label", { class: "field" }, el("span", {}, "Group by"),
+  // Cards are not grouped; the other layouts are, a board by lanes and the rest by headings (chapters).
+  const groupBy = v.type !== "cards"
+    ? [el("label", { class: "field", title: "Values like 3.2 or \"3.2 Login\" read as chapters, with a heading for each" }, el("span", {}, "Group by"),
       select(`view-group-${i}`, [{ value: "", label: "—" }, ...propertyOptions(v.groupBy ? [v.groupBy.property] : [])], v.groupBy?.property ?? "", (p) =>
         ops({ op: "setView", index: i, key: "groupBy", value: p ? { property: p, direction: v.groupBy?.direction ?? "ASC" } : undefined })))]
     : [];
@@ -448,7 +453,7 @@ function resultsPanel(): HTMLElement {
   }, { type: "number", min: "1", placeholder: "no limit", class: "narrow" });
   const reset = iconButton("reset", "Reset limit", () => setLimit(undefined), "", "Show every matching file");
   reset.disabled = r.view.limit === undefined;
-  const exportTo = (to: "clipboard" | "csv") => {
+  const exportTo = (to: "clipboard" | "csv" | "markdown" | "html") => {
     closePanel();
     send({ type: "export", to });
   };
@@ -460,7 +465,9 @@ function resultsPanel(): HTMLElement {
     el("div", { class: "actions" },
       reset,
       iconButton("clipboard", "Copy to clipboard", () => exportTo("clipboard"), "", "Copy the rows and columns of this view (all pages), tab-separated"),
-      iconButton("download", "Export CSV", () => exportTo("csv"), "", "Save the rows and columns of this view (all pages) as a CSV file")),
+      iconButton("download", "Export CSV", () => exportTo("csv"), "", "Save the rows and columns of this view (all pages) as a CSV file"),
+      iconButton("document", "Export Markdown", () => exportTo("markdown"), "", "Save the view as one document: chapters, each file's properties and text"),
+      iconButton("document", "Export HTML (for PDF / Word)", () => exportTo("html"), "", "Save the view as a web page: print it to PDF, or open it in Word")),
   );
 }
 
@@ -1153,7 +1160,14 @@ function table(): HTMLElement {
   const lists = r.columns.map((c, ci) => el("datalist", { id: `sugg-${ci}` }, ...(c.suggestions ?? []).map((v) => el("option", { value: v }))));
 
   const body = el("tbody");
-  rows.forEach((row, ri) => {
+  const at = new Map(rows.map((row, ri) => [row, ri]));
+  for (const item of grouped(rows)) {
+    if (item.kind === "heading") {
+      body.append(el("tr", { class: `group-row level-${item.level}` }, el("td", { colspan: String(r.columns.length + 1) }, headingLabel(item))));
+      continue;
+    }
+    const row = item.row;
+    const ri = at.get(row)!;
     const box = el("input", { type: "checkbox" });
     box.checked = isSelected(row.uri);
     box.onclick = (e) => {
@@ -1175,7 +1189,7 @@ function table(): HTMLElement {
       tr.append(td);
     });
     body.append(tr);
-  });
+  }
   return el("div", {}, ...lists, el("table", {}, el("thead", {}, head), body));
 }
 
@@ -1186,8 +1200,67 @@ function content(): HTMLElement {
   const r = result!;
   if (r.rows.length === 0 || r.view.type === "table" || !LAYOUTS.some((l) => l.type === r.view.type)) return table();
   if (r.view.type === "cards") return el("div", { class: "cards" }, ...r.rows.map((row) => card(row)));
-  if (r.view.type === "list") return el("ul", { class: "list" }, ...r.rows.map(listItem));
+  if (r.view.type === "list") {
+    return el("ul", { class: "list" }, ...grouped(r.rows).map((item) =>
+      item.kind === "heading" ? el("li", { class: `list-heading level-${item.level}` }, headingLabel(item)) : listItem(item.row)));
+  }
+  if (r.view.type === "document") return documentView();
   return kanban();
+}
+
+/** The rows with chapter headings, when the view groups; else just the rows. */
+function grouped(rows: Row[]): OutlineItem[] {
+  const g = result!.group;
+  return g ? outline(rows, g.id, g.suggestions) : rows.map((row) => ({ kind: "row", row }));
+}
+
+function headingLabel(item: Extract<OutlineItem, { kind: "heading" }>): HTMLElement {
+  return el("span", { class: "heading-label" }, ...(item.number ? [el("span", { class: "heading-number" }, item.number)] : []), item.title);
+}
+
+// --- document -------------------------------------------------------------------
+
+// The text of a note is Markdown; raw HTML in it stays text.
+const markdown = new MarkdownIt({ html: false, linkify: true });
+
+/** The view as one document: chapter headings, then each file with its title, properties and text. */
+function documentView(): HTMLElement {
+  const r = result!;
+  const g = r.group;
+  const page = el("div", { class: "document" });
+  let depth = 0;
+  for (const item of grouped(r.rows)) {
+    if (item.kind === "heading") {
+      depth = Math.min(item.level, 4);
+      page.append(el(`h${depth}` as "h1", { class: "doc-heading" }, headingLabel(item)));
+      continue;
+    }
+    const row = item.row;
+    const { title, fields } = entryParts(r.columns, row, g?.id);
+    const head = el(`h${Math.min(depth + 1, 5)}` as "h2", { class: "doc-entry-title" }, titleLinkText(row, title), selectBox(row));
+    const text = el("div", { class: "doc-body" });
+    // Markdown-it escapes HTML (html: false), so the result is safe to insert.
+    text.innerHTML = markdown.render(row.body ?? "");
+    page.append(el("section", { class: isSelected(row.uri) ? "doc-entry selected" : "doc-entry", title: row.readOnly },
+      head,
+      ...(fields.length > 0 ? [el("div", { class: "doc-fields" }, ...fields.map((c) => el("span", { class: "doc-field" }, el("span", { class: "card-label" }, c.label), ...cellContent(c, row))))] : []),
+      text));
+  }
+  // Links in a note's text: web links open in the browser; nothing navigates the webview.
+  page.onclick = (e) => {
+    const a = (e.target as HTMLElement).closest("a");
+    if (!a || a.classList.contains("title")) return;
+    e.preventDefault();
+    const href = a.getAttribute("href") ?? "";
+    if (/^https?:/i.test(href)) send({ type: "open", uri: href });
+  };
+  return page;
+}
+
+function titleLinkText(row: Row, text: string): HTMLElement {
+  const t = titleLink(row);
+  t.textContent = text;
+  return t;
 }
 
 /** A row's title is its first column, or its file name. */

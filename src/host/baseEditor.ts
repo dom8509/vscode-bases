@@ -2,10 +2,15 @@
 // truth for the view configuration; the webview renders the computed view and
 // sends edits back.
 
+import MarkdownIt from "markdown-it";
 import * as vscode from "vscode";
+import type { Row } from "../core/base";
 import { computeView, DEFAULT_PAGE_SIZE, parseBase } from "../core/base";
 import { updateBase, type BaseOp } from "../core/baseEdit";
+import { nextId } from "../core/autoId";
+import { documentMarkdown } from "../core/document";
 import { toDelimited } from "../core/export";
+import { bodyText, sourceKind } from "../core/record";
 import { newNote, noteText } from "../core/newNote";
 import { parseInputValue, textChange, type PropertyEdit } from "../core/writer";
 import type { EditTarget, FromWebview, ToWebview, UiEdit, UiState } from "../protocol";
@@ -13,6 +18,46 @@ import { applyPropertyEdits } from "./edits";
 import { fileInfo, type WorkspaceIndex } from "./indexer";
 
 export const VIEW_TYPE = "bases.editor";
+
+/** The text of a file: what an editor holds, else what is on disk. */
+async function readText(uri: vscode.Uri): Promise<string> {
+  const open = vscode.workspace.textDocuments.find((d) => d.uri.toString() === uri.toString());
+  if (open) return open.getText();
+  return new TextDecoder().decode(await vscode.workspace.fs.readFile(uri));
+}
+
+/** Fills in the Markdown after the frontmatter of each row, for the document layout and its export. */
+async function withBodies(rows: Row[]): Promise<void> {
+  await Promise.all(rows.map(async (row) => {
+    const uri = vscode.Uri.parse(row.uri);
+    const kind = sourceKind(uri.path.split(".").pop() ?? "");
+    row.body = kind ? bodyText(await readText(uri).catch(() => ""), kind) : "";
+  }));
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** A page that reads well and prints well (Print → PDF), and that Word opens. */
+function documentHtml(title: string, markdown: string): string {
+  const body = new MarkdownIt({ html: false, linkify: true }).render(markdown);
+  return `<!DOCTYPE html>
+<html lang="de"><head><meta charset="UTF-8"><title>${escapeHtml(title)}</title>
+<style>
+body { font: 11pt/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; max-width: 48em; margin: 2em auto; padding: 0 1em; color: #222; }
+h1 { font-size: 1.8em; border-bottom: 1px solid #ccc; padding-bottom: .2em; }
+h2, h3 { margin-top: 1.6em; }
+h4, h5, h6 { margin: 1.4em 0 .3em; }
+p strong { color: #555; font-weight: 600; }
+code, pre { font-family: ui-monospace, Menlo, Consolas, monospace; background: #f4f4f4; }
+pre { padding: .6em; overflow: auto; }
+table { border-collapse: collapse; } td, th { border: 1px solid #ccc; padding: .2em .5em; }
+@media print { body { margin: 0; max-width: none; } h2, h3 { break-after: avoid; } }
+</style></head><body>
+${body}</body></html>
+`;
+}
 
 /**
  * Swaps a base between the table and its YAML, as the Markdown preview does:
@@ -81,6 +126,7 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
       ui.viewIndex = result.viewIndex;
       ui.page = result.page;
       this.log.debug(`${vscode.workspace.asRelativePath(document.uri)} › ${result.view.name}: ${result.matchCount} of ${result.total} files, page ${result.page + 1}, in ${Math.round(performance.now() - started)} ms`);
+      if (result.view.type === "document") await withBodies(result.rows);
       post({ type: "render", result, indexing: this.index.progress && { ...this.index.progress } });
     };
 
@@ -150,6 +196,11 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
             }
             break;
           case "open":
+            // A link in a note's text: the browser opens it.
+            if (/^https?:/i.test(msg.uri)) {
+              await vscode.env.openExternal(vscode.Uri.parse(msg.uri));
+              break;
+            }
             await vscode.window.showTextDocument(vscode.Uri.parse(msg.uri), { preview: true, viewColumn: vscode.ViewColumn.Beside });
             break;
           case "newNote":
@@ -163,11 +214,22 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
               post({ type: "notice", message: `Copied ${files} to the clipboard` });
               break;
             }
-            const name = `${document.uri.path.split("/").pop()!.replace(/\.base$/, "")} - ${all.view.name}.csv`.replace(/[\\/:*?"<>|]/g, "_");
-            const target = await vscode.window.showSaveDialog({ defaultUri: vscode.Uri.joinPath(document.uri, "..", name), filters: { CSV: ["csv"] } });
+            const baseName = document.uri.path.split("/").pop()!.replace(/\.base$/, "");
+            const ext = msg.to === "csv" ? "csv" : msg.to === "markdown" ? "md" : "html";
+            const name = `${baseName} - ${all.view.name}.${ext}`.replace(/[\\/:*?"<>|]/g, "_");
+            const filters: Record<string, string[]> = { csv: { CSV: ["csv"] }, md: { Markdown: ["md"] }, html: { HTML: ["html"] } }[ext]!;
+            const target = await vscode.window.showSaveDialog({ defaultUri: vscode.Uri.joinPath(document.uri, "..", name), filters });
             if (!target) break;
-            // The BOM lets Excel read the file as UTF-8.
-            await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(`\uFEFF${toDelimited(all.columns, all.rows, ",")}`));
+            let out: string;
+            if (msg.to === "csv") {
+              // The BOM lets Excel read the file as UTF-8.
+              out = `\uFEFF${toDelimited(all.columns, all.rows, ",")}`;
+            } else {
+              await withBodies(all.rows);
+              const markdown = documentMarkdown(`${baseName} – ${all.view.name}`, all.columns, all.rows, all.group);
+              out = msg.to === "markdown" ? markdown : documentHtml(`${baseName} – ${all.view.name}`, markdown);
+            }
+            await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(out));
             post({ type: "notice", message: `Exported ${files} to ${vscode.workspace.asRelativePath(target)}` });
             break;
           }
@@ -203,15 +265,27 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
       post({ type: "notice", message: "Open a folder first: a new note goes into the workspace." });
       return;
     }
-    const note = newNote(parseBase(document.getText()), viewIndex);
+    const base = parseBase(document.getText());
+    const note = newNote(base, viewIndex);
+    // A column of IDs like REQ-041 gives the new note the next one (and its name); "id" is looked at first.
+    const all = computeView(base, this.index.all(), { viewIndex, page: 0, pageSize: Number.MAX_SAFE_INTEGER });
+    const candidates = all.columns.filter((c) => c.editable).sort((a, b) => Number(b.id.toLowerCase() === "id") - Number(a.id.toLowerCase() === "id"));
+    let id: string | undefined;
+    for (const c of candidates) {
+      id = nextId(all.rows.map((r) => r.cells[c.id]));
+      if (id) {
+        note.properties = { [c.id]: id, ...note.properties };
+        break;
+      }
+    }
     const setting = vscode.workspace.getConfiguration("bases").get<string>("newNoteFolder", "").trim().replace(/^[/\\]+|[/\\]+$/g, "");
     const folderPath = note.folder ?? setting;
     const folder = folderPath ? vscode.Uri.joinPath(root, ...folderPath.split(/[/\\]/)) : root;
 
     const exists = (uri: vscode.Uri) => vscode.workspace.fs.stat(uri).then(() => true, () => false);
     const fileFor = (name: string) => vscode.Uri.joinPath(folder, /\.(md|markdown)$/i.test(name) ? name : `${name}.md`);
-    let suggestion = "Untitled";
-    for (let i = 2; await exists(fileFor(suggestion)); i++) suggestion = `Untitled ${i}`;
+    let suggestion = id ?? "Untitled";
+    for (let i = 2; await exists(fileFor(suggestion)); i++) suggestion = `${id ?? "Untitled"} ${i}`;
     const where = folderPath ? `${folderPath}/` : "the workspace folder";
     const name = await vscode.window.showInputBox({
       title: "New note",

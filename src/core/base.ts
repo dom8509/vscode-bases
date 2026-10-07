@@ -3,6 +3,7 @@
 
 import { parse } from "yaml";
 import { compare, ExprError, run, toDate, truthy, type EvalContext, type FileInfo } from "./expr";
+import { compareChapters } from "./chapters";
 import { toModel, type FilterGroup } from "./filterModel";
 import type { FileRecord } from "./record";
 
@@ -118,6 +119,8 @@ export interface Row {
   path: string;
   readOnly?: string;
   cells: Record<string, unknown>;
+  /** The Markdown after the frontmatter; filled in by the host for the document layout. */
+  body?: string;
 }
 
 export interface PropertyInfo {
@@ -290,14 +293,23 @@ export function computeView(base: BaseConfig, records: Iterable<FileRecord>, opt
   const order = Array.isArray(view.order) && view.order.length > 0 ? view.order.map(String) : ["file.name"];
   const refs = order.map(propertyRef);
   const groupBy = groupByOf(view);
+  const sort = (Array.isArray(view.sort) ? view.sort : []).filter((s) => s && s.property);
+  const sortRefs = sort.map((s) => ({ ref: propertyRef(s.property), desc: String(s.direction).toUpperCase() === "DESC" }));
   const groupRef = groupBy && propertyRef(groupBy.property);
   // The group's values travel with the cells, also when it is not a column.
   const cellRefs = groupRef && !refs.some((r) => r.id === groupRef.id) ? [...refs, groupRef] : refs;
-
-  const sort = (Array.isArray(view.sort) ? view.sort : []).filter((s) => s && s.property);
-  const sortRefs = sort.map((s) => ({ ref: propertyRef(s.property), desc: String(s.direction).toUpperCase() === "DESC" }));
+  // Grouped rows stay together, chapters in reading order; a board has its own lanes.
+  const groupFirst = groupRef && view.type !== "kanban" ? groupRef : undefined;
+  const groupValue = (ctx: EvalContext): unknown => {
+    try {
+      return groupFirst && cellValue(groupFirst, ctx);
+    } catch {
+      return undefined;
+    }
+  };
   const keyed = hits.map((h) => ({
     ...h,
+    group: groupValue(h.ctx),
     keys: sortRefs.map(({ ref }) => {
       let v: unknown;
       try {
@@ -309,6 +321,10 @@ export function computeView(base: BaseConfig, records: Iterable<FileRecord>, opt
     }),
   }));
   keyed.sort((a, b) => {
+    if (groupFirst) {
+      const g = compareChapters(a.group, b.group);
+      if (g !== 0) return groupBy!.direction === "DESC" ? -g : g;
+    }
     for (let i = 0; i < sortRefs.length; i++) {
       const x = a.keys[i];
       const y = b.keys[i];

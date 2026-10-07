@@ -20,9 +20,19 @@ at once.
   at most that many files, *Reset limit* shows all again. *Copy to
   clipboard* copies the view's rows and columns (all pages, tab-separated:
   they paste into a spreadsheet as cells); *Export CSV* saves them as a
-  `.csv` file.
+  `.csv` file. *Export Markdown* and *Export HTML* save the view as one
+  document (chapters, titles, properties, text); open the HTML in a browser
+  and print it to PDF, or open it in Word.
 - **Layouts:** in the view settings, *Layout* shows a view as a **Table**,
-  **Cards** (one card per file), a **List**, or a **Kanban** board. A board
+  **Cards** (one card per file), a **List**, a **Kanban** board, or a
+  **Document**: every file with its title, its properties in one line and
+  the text of the note below them, read like one document. Click a title to
+  edit the note.
+- **Group by and chapters:** *Group by* in the view settings groups a table,
+  list or document under a heading per value. Values that are chapter
+  numbers — `3.2` or `3.2 Anmeldung` — read as chapters: they sort as
+  3 < 3.2 < 3.10 < 4, and chapter 3.2 sits under chapter 3. A chapter's title
+  is taken from any value that names it (`3 Funktionen`). A board
   groups its cards by one property (*Group by*), one lane per value; drag a
   card to another lane to change that value in its file. Drag a lane by its
   header to move it; the order is kept in the view (`groupBy.order`). Cards and list
@@ -65,7 +75,12 @@ at once.
   workspace folder; empty, the default, is the workspace folder itself), or
   into the folder the view filters on with *is in folder*. Values the
   view's filters require (*is*, *has tag*, in "all of" groups) are filled
-  in, so the note shows in the view.
+  in, so the note shows in the view. When a column holds IDs like
+  `REQ-041` (a column named `id` is looked at first), the new note gets the
+  next one, `REQ-042`, and is named after it.
+- **Example:** `sample/lastenheft.base` is a requirements specification:
+  one note per requirement, as a document, a table by chapter, and a board
+  by status.
 - **Edit the YAML:** the source icon at the top right of the editor (as for
   Markdown) or Cmd/Ctrl+Shift+V. The same
   icon and keys in the YAML go back to the table.

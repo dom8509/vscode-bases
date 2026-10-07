@@ -28,6 +28,11 @@ const tests: [string, (ws: vscode.Uri, index: WorkspaceIndex) => Promise<void>][
       assert.deepEqual(paths, [
         "deploy/app.yaml",
         "deploy/worker.yml",
+        "lastenheft/REQ-001.md",
+        "lastenheft/REQ-002.md",
+        "lastenheft/REQ-003.md",
+        "lastenheft/REQ-004.md",
+        "lastenheft/REQ-005.md",
         "notes/idea.md",
         "notes/meeting.md",
         "projects/alpha.md",
