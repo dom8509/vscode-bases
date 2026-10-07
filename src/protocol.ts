@@ -1,6 +1,7 @@
 // Messages between the extension host and the base webview.
 
 import type { SortSpec, ViewResult } from "./core/base";
+import type { BaseOp } from "./core/baseEdit";
 import type { PropertyEdit } from "./core/writer";
 
 /** A value as typed into the UI; the host reads it as YAML. */
@@ -9,6 +10,14 @@ export type UiEdit =
   | { kind: "delete"; key: string }
   | { kind: "rename"; from: string; to: string };
 
+/** What the person is looking at: not part of the base file. */
+export interface UiState {
+  viewIndex: number;
+  page: number;
+  pageSize: number;
+  query: string;
+}
+
 export type ToWebview =
   | { type: "render"; result: ViewResult }
   | { type: "error"; message: string }
@@ -16,10 +25,11 @@ export type ToWebview =
 
 export type FromWebview =
   | { type: "ready" }
-  | { type: "selectView"; index: number }
-  | { type: "sort"; sort: SortSpec[] }
+  | { type: "ui"; state: Partial<UiState> }
+  /** Changes to the .base file: views, filters, columns, sort, formulas. */
+  | { type: "baseOps"; ops: BaseOp[] }
   | { type: "open"; uri: string }
   | { type: "edit"; uris: string[]; edits: UiEdit[] }
   | { type: "openAsText" };
 
-export type { PropertyEdit, SortSpec, ViewResult };
+export type { BaseOp, PropertyEdit, SortSpec, ViewResult };

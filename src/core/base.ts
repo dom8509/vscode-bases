@@ -3,6 +3,7 @@
 
 import { parse } from "yaml";
 import { compare, ExprError, run, toDate, truthy, type EvalContext, type FileInfo } from "./expr";
+import { toModel, type FilterGroup } from "./filterModel";
 import type { FileRecord } from "./record";
 
 export type Filter = string | { and: Filter[] } | { or: Filter[] } | { not: Filter[] };
@@ -66,15 +67,37 @@ export interface Row {
   cells: Record<string, unknown>;
 }
 
+export interface PropertyInfo {
+  id: string;
+  label: string;
+  ns: PropertyRef["ns"];
+}
+
 export interface ViewResult {
   views: { name: string; type: string }[];
   viewIndex: number;
+  /** The selected view as written in the base. */
+  view: { name: string; order: string[]; sort: SortSpec[]; limit?: number };
+  baseFilter: FilterGroup;
+  viewFilter: FilterGroup;
+  /** The filters as written in the file, to tell whether an edit in progress is still current. */
+  rawFilters: { base: Filter | null; view: Filter | null };
+  formulas: Record<string, string>;
   columns: Column[];
+  /** The rows of the current page. */
   rows: Row[];
+  /** Every file the view and the search match, across all pages: for "select all". */
+  allUris: string[];
+  /** Files the filters match, before limit and search. */
   total: number;
+  page: number;
+  pageSize: number;
+  pageCount: number;
   sort: SortSpec[];
-  /** Note properties seen in the filtered rows, for the bulk-edit picker. */
+  /** Note properties seen in the indexed files, for the bulk-edit picker. */
   propertyNames: string[];
+  /** Every property a column, sort or filter can use. */
+  properties: PropertyInfo[];
   errors: string[];
 }
 
@@ -149,8 +172,28 @@ function serialize(v: unknown): unknown {
 
 export interface ComputeOptions {
   viewIndex: number;
+  /** Zero-based page. */
+  page?: number;
+  pageSize?: number;
+  /** Free-text search over the cells of the view's columns. */
+  query?: string;
   now?: Date;
   thisFile?: FileInfo;
+}
+
+export const DEFAULT_PAGE_SIZE = 50;
+
+const FILE_PROPERTIES = ["name", "basename", "path", "folder", "ext", "size", "mtime", "ctime", "tags"];
+
+function label(base: BaseConfig, ref: PropertyRef): string {
+  return base.properties[ref.id]?.displayName ?? base.properties[`note.${ref.id}`]?.displayName ?? ref.name;
+}
+
+function displayText(v: unknown): string {
+  if (v === null || v === undefined) return "";
+  if (Array.isArray(v)) return v.map(displayText).join(", ");
+  if (typeof v === "object") return JSON.stringify(v);
+  return String(v);
 }
 
 export function computeView(base: BaseConfig, records: Iterable<FileRecord>, opts: ComputeOptions): ViewResult {
@@ -159,26 +202,34 @@ export function computeView(base: BaseConfig, records: Iterable<FileRecord>, opt
   const now = opts.now ?? new Date();
   const errors = new Set<string>();
 
+  const all = [...records];
   const hits: { rec: FileRecord; ctx: EvalContext }[] = [];
-  for (const rec of records) {
+  for (const rec of all) {
     const ctx = context(rec, base, now, opts.thisFile, errors);
     if (matches(base.filters, ctx, errors) && matches(view.filters, ctx, errors)) hits.push({ rec, ctx });
   }
 
-  // Without an explicit order: the file name, then every note property by how often it occurs.
+  // Note properties across the workspace, the most common first.
   const counts = new Map<string, number>();
-  for (const { rec } of hits) for (const k of Object.keys(rec.properties)) counts.set(k, (counts.get(k) ?? 0) + 1);
+  for (const rec of all) for (const k of Object.keys(rec.properties)) counts.set(k, (counts.get(k) ?? 0) + 1);
   const propertyNames = [...counts.keys()].sort((a, b) => counts.get(b)! - counts.get(a)! || a.localeCompare(b));
-  const order = view.order && view.order.length > 0 ? view.order : ["file.name", ...propertyNames];
+
+  // A view without columns lists its files by name.
+  const order = Array.isArray(view.order) && view.order.length > 0 ? view.order.map(String) : ["file.name"];
   const refs = order.map(propertyRef);
 
-  const sort = (view.sort ?? []).filter((s) => s && s.property);
+  const sort = (Array.isArray(view.sort) ? view.sort : []).filter((s) => s && s.property);
   const sortRefs = sort.map((s) => ({ ref: propertyRef(s.property), desc: String(s.direction).toUpperCase() === "DESC" }));
   const keyed = hits.map((h) => ({
     ...h,
     keys: sortRefs.map(({ ref }) => {
-      const v = cellValue(ref, h.ctx);
-      return ref.ns === "note" && typeof v === "string" && toDate(v) && /^\d{4}-\d\d-\d\d/.test(v) ? toDate(v) : v;
+      let v: unknown;
+      try {
+        v = cellValue(ref, h.ctx);
+      } catch (e) {
+        errors.add(`${ref.id}: ${(e as Error).message}`);
+      }
+      return ref.ns === "note" && typeof v === "string" && /^\d{4}-\d\d-\d\d/.test(v) ? toDate(v) : v;
     }),
   }));
   keyed.sort((a, b) => {
@@ -197,13 +248,7 @@ export function computeView(base: BaseConfig, records: Iterable<FileRecord>, opt
 
   const limited = typeof view.limit === "number" && view.limit > 0 ? keyed.slice(0, view.limit) : keyed;
 
-  const columns: Column[] = refs.map((ref) => ({
-    id: ref.id,
-    label: base.properties[ref.id]?.displayName ?? base.properties[`note.${ref.id}`]?.displayName ?? ref.name,
-    editable: ref.ns === "note",
-  }));
-
-  const rows: Row[] = limited.map(({ rec, ctx }) => {
+  const cellsOf = (ctx: EvalContext): Record<string, unknown> => {
     const cells: Record<string, unknown> = {};
     for (const ref of refs) {
       try {
@@ -213,17 +258,53 @@ export function computeView(base: BaseConfig, records: Iterable<FileRecord>, opt
         cells[ref.id] = null;
       }
     }
-    return { uri: rec.uri, path: rec.file.path, readOnly: rec.readOnly, cells };
-  });
+    return cells;
+  };
+
+  // Search needs every row's cells; without a search only the page's are computed.
+  const query = (opts.query ?? "").trim().toLowerCase();
+  let found: { rec: FileRecord; ctx: EvalContext; cells?: Record<string, unknown> }[] = limited;
+  if (query) {
+    found = limited
+      .map((h) => ({ ...h, cells: cellsOf(h.ctx) }))
+      .filter((h) => h.rec.file.path.toLowerCase().includes(query) || Object.values(h.cells).some((v) => displayText(v).toLowerCase().includes(query)));
+  }
+
+  const pageSize = opts.pageSize && opts.pageSize > 0 ? opts.pageSize : DEFAULT_PAGE_SIZE;
+  const pageCount = Math.max(1, Math.ceil(found.length / pageSize));
+  const page = Math.min(Math.max(opts.page ?? 0, 0), pageCount - 1);
+  const rows: Row[] = found.slice(page * pageSize, (page + 1) * pageSize).map((h) => ({
+    uri: h.rec.uri,
+    path: h.rec.file.path,
+    readOnly: h.rec.readOnly,
+    cells: h.cells ?? cellsOf(h.ctx),
+  }));
+
+  const columns: Column[] = refs.map((ref) => ({ id: ref.id, label: label(base, ref), editable: ref.ns === "note" }));
+  const properties: PropertyInfo[] = [
+    ...FILE_PROPERTIES.map((n) => propertyRef(`file.${n}`)),
+    ...propertyNames.map(propertyRef),
+    ...Object.keys(base.formulas).map((n) => propertyRef(`formula.${n}`)),
+  ].map((ref) => ({ id: ref.id, label: label(base, ref), ns: ref.ns }));
 
   return {
     views: base.views.map((v) => ({ name: v.name, type: v.type })),
     viewIndex,
+    view: { name: view.name, order, sort, limit: typeof view.limit === "number" ? view.limit : undefined },
+    baseFilter: toModel(base.filters),
+    viewFilter: toModel(view.filters),
+    rawFilters: { base: base.filters ?? null, view: view.filters ?? null },
+    formulas: Object.fromEntries(Object.entries(base.formulas).map(([k, v]) => [k, String(v)])),
     columns,
     rows,
+    allUris: found.map((h) => h.rec.uri),
     total: hits.length,
+    page,
+    pageSize,
+    pageCount,
     sort,
     propertyNames,
+    properties,
     errors: [...errors],
   };
 }

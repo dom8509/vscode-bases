@@ -91,60 +91,107 @@ export function applyEdits(text: string, ext: string, edits: PropertyEdit[]): Te
     return { start: region.start, end: region.start, text: `---${eol}${after.replace(/\r?\n/g, eol)}---${eol}` };
   }
   const merged = mergeLines(yamlText, before, after, eol);
-  return narrow(yamlText, merged, region.start);
+  return textChange(yamlText, merged, region.start);
 }
 
 /**
- * Stringifying normalises lines nobody touched (spacing before comments,
- * quoting). Takes the lines that changed between `before` and `after` and
- * applies only those to the original text, so every other line stays as it
- * was. Falls back to `after` when the original and `before` do not line up.
+ * Stringifying normalises lines nobody touched: spacing before comments,
+ * quoting, blank lines. Takes what changed between `before` and `after` (both
+ * normalised) and applies only that to the original, so every other line
+ * stays exactly as it was. Original lines are matched to normalised ones by a
+ * diff, so a normalisation that adds or drops lines does not misalign them.
  */
 export function mergeLines(original: string, before: string, after: string, eol: string): string {
   const o = original.split(/\r?\n/);
   const b = before.split("\n");
   const a = after.split("\n");
-  if (o.length !== b.length) return after.replace(/\n/g, eol);
 
-  let head = 0;
-  while (head < b.length && head < a.length && b[head] === a[head]) head++;
-  let tail = 0;
-  while (tail < b.length - head && tail < a.length - head && b[b.length - 1 - tail] === a[a.length - 1 - tail]) tail++;
+  // b line -> the identical original line, where there is one.
+  const bToO = new Array<number>(b.length).fill(-1);
+  for (const [i, j] of matchLines(o, b)) bToO[j] = i;
 
-  const bMid = b.slice(head, b.length - tail);
-  const aMid = a.slice(head, a.length - tail);
-  const out = [...o.slice(0, head), ...diffMerge(o.slice(head, o.length - tail), bMid, aMid), ...o.slice(o.length - tail)];
+  // b lines that survive into a, and the a lines that are new after each b line.
+  const kept = new Array<boolean>(b.length).fill(false);
+  const inserts = new Map<number, string[]>();
+  let prevB = -1;
+  let prevA = -1;
+  for (const [i, j] of [...matchLines(b, a), [b.length, a.length] as [number, number]]) {
+    if (j > prevA + 1) inserts.set(prevB, a.slice(prevA + 1, j));
+    if (i < b.length) kept[i] = true;
+    prevB = i;
+    prevA = j;
+  }
+
+  const out: string[] = [...(inserts.get(-1) ?? [])];
+  const emitNormalised = (from: number, to: number) => {
+    for (let i = from; i < to; i++) {
+      if (kept[i]) out.push(b[i]!);
+      out.push(...(inserts.get(i) ?? []));
+    }
+  };
+
+  let oPos = 0;
+  let bPos = 0;
+  const anchors: [number, number][] = [];
+  for (let j = 0; j < b.length; j++) if (bToO[j]! >= 0) anchors.push([bToO[j]!, j]);
+  anchors.push([o.length, b.length]);
+
+  for (const [ok, bk] of anchors) {
+    // The stretch between two anchors: original lines with no identical normalised line.
+    let untouched = true;
+    for (let i = bPos; i < bk; i++) if (!kept[i] || (i < bk - 1 && inserts.has(i))) untouched = false;
+    if (untouched) {
+      out.push(...o.slice(oPos, ok));
+      if (bk > bPos) out.push(...(inserts.get(bk - 1) ?? []));
+    } else {
+      emitNormalised(bPos, bk);
+    }
+    if (bk < b.length) {
+      if (kept[bk]) out.push(o[ok]!);
+      out.push(...(inserts.get(bk) ?? []));
+    }
+    oPos = ok + 1;
+    bPos = bk + 1;
+  }
   return out.join(eol);
 }
 
-/** Lines of `b` kept in `a` come from `o` (same positions as `b`); the rest come from `a`. */
-function diffMerge(o: string[], b: string[], a: string[]): string[] {
-  if (b.length * a.length > 1_000_000) return a;
-  // Longest common subsequence table, from the end.
-  const lcs: number[][] = Array.from({ length: b.length + 1 }, () => new Array<number>(a.length + 1).fill(0));
-  for (let i = b.length - 1; i >= 0; i--)
-    for (let j = a.length - 1; j >= 0; j--)
-      lcs[i]![j] = b[i] === a[j] ? lcs[i + 1]![j + 1]! + 1 : Math.max(lcs[i + 1]![j]!, lcs[i]![j + 1]!);
-  const out: string[] = [];
-  let i = 0;
-  let j = 0;
-  while (i < b.length || j < a.length) {
-    if (i < b.length && j < a.length && b[i] === a[j]) {
-      out.push(o[i]!);
-      i++;
-      j++;
-    } else if (j < a.length && (i >= b.length || lcs[i]![j + 1]! >= lcs[i + 1]![j]!)) {
-      out.push(a[j]!);
-      j++;
-    } else {
-      i++;
+/** Pairs of indexes of equal lines in x and y, in order: a longest common subsequence. */
+function matchLines(x: string[], y: string[]): [number, number][] {
+  const pairs: [number, number][] = [];
+  let head = 0;
+  while (head < x.length && head < y.length && x[head] === y[head]) pairs.push([head, head++]);
+  let tail = 0;
+  while (tail < x.length - head && tail < y.length - head && x[x.length - 1 - tail] === y[y.length - 1 - tail]) tail++;
+
+  const xm = x.slice(head, x.length - tail);
+  const ym = y.slice(head, y.length - tail);
+  // Very large middles are not worth the quadratic table: they get rewritten.
+  if (xm.length * ym.length <= 4_000_000) {
+    const lcs: Uint32Array[] = Array.from({ length: xm.length + 1 }, () => new Uint32Array(ym.length + 1));
+    for (let i = xm.length - 1; i >= 0; i--)
+      for (let j = ym.length - 1; j >= 0; j--)
+        lcs[i]![j] = xm[i] === ym[j] ? lcs[i + 1]![j + 1]! + 1 : Math.max(lcs[i + 1]![j]!, lcs[i]![j + 1]!);
+    let i = 0;
+    let j = 0;
+    while (i < xm.length && j < ym.length) {
+      if (xm[i] === ym[j]) {
+        pairs.push([head + i, head + j]);
+        i++;
+        j++;
+      } else if (lcs[i + 1]![j]! >= lcs[i]![j + 1]!) {
+        i++;
+      } else {
+        j++;
+      }
     }
   }
-  return out;
+  for (let t = tail; t > 0; t--) pairs.push([x.length - t, y.length - t]);
+  return pairs;
 }
 
-/** Shrinks a replacement of `original` by `next` to the span that differs. */
-function narrow(original: string, next: string, offset: number): TextChange | undefined {
+/** The smallest change that turns `original` into `next`; offsets shifted by `offset`. */
+export function textChange(original: string, next: string, offset = 0): TextChange | undefined {
   if (original === next) return undefined;
   let head = 0;
   while (head < original.length && head < next.length && original[head] === next[head]) head++;

@@ -3,10 +3,10 @@
 // sends edits back.
 
 import * as vscode from "vscode";
-import { computeView, parseBase } from "../core/base";
-import { setViewSort } from "../core/baseEdit";
-import { parseInputValue, type PropertyEdit } from "../core/writer";
-import type { FromWebview, ToWebview, UiEdit } from "../protocol";
+import { computeView, DEFAULT_PAGE_SIZE, parseBase } from "../core/base";
+import { updateBase, type BaseOp } from "../core/baseEdit";
+import { parseInputValue, textChange, type PropertyEdit } from "../core/writer";
+import type { FromWebview, ToWebview, UiEdit, UiState } from "../protocol";
 import { applyPropertyEdits } from "./edits";
 import { fileInfo, type WorkspaceIndex } from "./indexer";
 
@@ -34,8 +34,13 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
     webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, "dist"), vscode.Uri.joinPath(this.context.extensionUri, "webview")] };
     webview.html = this.html(webview);
 
-    // The selected view is UI state, not part of the base file.
-    let viewIndex = 0;
+    // What the person is looking at is UI state, not part of the base file.
+    const ui: UiState = {
+      viewIndex: 0,
+      page: 0,
+      pageSize: vscode.workspace.getConfiguration("bases").get<number>("pageSize", DEFAULT_PAGE_SIZE),
+      query: "",
+    };
     let ready = false;
     const post = (msg: ToWebview) => void webview.postMessage(msg);
 
@@ -51,10 +56,11 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
       await this.index.ensureReady();
       const stat = document.uri.scheme === "file" ? await vscode.workspace.fs.stat(document.uri).then(undefined, () => undefined) : undefined;
       const result = computeView(base, this.index.all(), {
-        viewIndex,
+        ...ui,
         thisFile: stat ? fileInfo(document.uri, stat) : undefined,
       });
-      viewIndex = result.viewIndex;
+      ui.viewIndex = result.viewIndex;
+      ui.page = result.page;
       post({ type: "render", result });
     };
 
@@ -64,10 +70,21 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
       timer = setTimeout(() => void render(), 50);
     };
 
-    const replaceBaseText = async (text: string) => {
+    const applyBaseOps = async (ops: BaseOp[]) => {
+      const text = document.getText();
+      const change = textChange(text, updateBase(text, ops));
+      if (!change) return;
       const edit = new vscode.WorkspaceEdit();
-      edit.replace(document.uri, new vscode.Range(0, 0, document.lineCount, 0), text);
+      edit.replace(document.uri, new vscode.Range(document.positionAt(change.start), document.positionAt(change.end)), change.text);
       await vscode.workspace.applyEdit(edit);
+      // Follow the view the person just made, or stay next to the one removed.
+      for (const op of ops) {
+        if (op.op === "addView") ui.viewIndex = parseBase(document.getText()).views.length - 1;
+        if (op.op === "duplicateView") ui.viewIndex = op.index + 1;
+        if (op.op === "removeView" && op.index <= ui.viewIndex) ui.viewIndex = Math.max(0, ui.viewIndex - 1);
+        if (op.op === "addView" || op.op === "duplicateView" || op.op === "removeView") ui.page = 0;
+      }
+      scheduleRender();
     };
 
     const subscriptions = [
@@ -81,13 +98,15 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
             ready = true;
             await render();
             break;
-          case "selectView":
-            viewIndex = msg.index;
+          case "ui":
+            // Another view or another search starts on the first page.
+            if ((msg.state.viewIndex !== undefined && msg.state.viewIndex !== ui.viewIndex) || (msg.state.query !== undefined && msg.state.query !== ui.query)) ui.page = 0;
+            Object.assign(ui, msg.state);
             await render();
             break;
-          case "sort":
+          case "baseOps":
             try {
-              await replaceBaseText(setViewSort(document.getText(), viewIndex, msg.sort));
+              await applyBaseOps(msg.ops);
             } catch (e) {
               post({ type: "notice", message: (e as Error).message });
             }

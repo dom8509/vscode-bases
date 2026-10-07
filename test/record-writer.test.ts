@@ -111,3 +111,13 @@ describe("input values", () => {
     expect(parseInputValue("a: [")).toBe("a: [");
   });
 });
+
+describe("line merge", () => {
+  it("keeps blank lines and comment layout the stringifier would drop", () => {
+    const text = "\n# head\n\na:   1    # one\n\n\nb: 2\nc: [x,y]\n";
+    expect(edit(text, "yaml", [{ kind: "set", key: "b", value: 3 }])).toBe(text.replace("b: 2", "b: 3"));
+    expect(edit(text, "yaml", [{ kind: "set", key: "d", value: 4 }])).toBe(text + "d: 4\n");
+    // The blank line yaml attaches to a deleted key goes with it.
+    expect(edit(text, "yaml", [{ kind: "delete", key: "b" }])).toBe(text.replace("\nb: 2\n", ""));
+  });
+});
