@@ -22,7 +22,8 @@ at once.
   they paste into a spreadsheet as cells); *Export CSV* saves them as a
   `.csv` file. In a table, *Export Excel* saves an `.xlsx` workbook: numbers
   stay numbers, dates are dates, the header is bold and frozen, and every
-  column has a filter; a grouped table keeps its group as the first column. *Export Markdown* and *Export HTML* save the view as one
+  column has a filter. A grouped view keeps its group (e.g. the chapter) as
+  the first column in Excel, CSV and the clipboard. *Export Markdown* and *Export HTML* save the view as one
   document (chapters, titles, properties, text); open the HTML in a browser
   and print it to PDF, or open it in Word.
 - **Layouts:** in the view settings, *Layout* shows a view as a **Table**,

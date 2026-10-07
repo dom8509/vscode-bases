@@ -210,8 +210,11 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
           case "export": {
             const all = computeView(parseBase(document.getText()), this.index.all(), { ...ui, page: 0, pageSize: Number.MAX_SAFE_INTEGER, thisFile: await thisFile() });
             const files = `${all.rows.length} ${all.rows.length === 1 ? "row" : "rows"}`;
+            // A grouped view keeps its groups as the first column, so a spreadsheet can filter by them.
+            const g = all.group;
+            const sheetColumns = g && !all.columns.some((c) => c.id === g.id) ? [g, ...all.columns] : all.columns;
             if (msg.to === "clipboard") {
-              await vscode.env.clipboard.writeText(toDelimited(all.columns, all.rows, "\t"));
+              await vscode.env.clipboard.writeText(toDelimited(sheetColumns, all.rows, "\t"));
               post({ type: "notice", message: `Copied ${files} to the clipboard` });
               break;
             }
@@ -223,13 +226,10 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
             if (!target) break;
             let out: string | Uint8Array;
             if (msg.to === "xlsx") {
-              // A grouped table keeps its groups as the first column, so Excel can filter by them.
-              const g = all.group;
-              const columns = g && !all.columns.some((c) => c.id === g.id) ? [g, ...all.columns] : all.columns;
-              out = toXlsx(columns, all.rows, all.view.name);
+              out = toXlsx(sheetColumns, all.rows, all.view.name);
             } else if (msg.to === "csv") {
               // The BOM lets Excel read the file as UTF-8.
-              out = `\uFEFF${toDelimited(all.columns, all.rows, ",")}`;
+              out = `\uFEFF${toDelimited(sheetColumns, all.rows, ",")}`;
             } else {
               await withBodies(all.rows);
               const markdown = documentMarkdown(`${baseName} – ${all.view.name}`, all.columns, all.rows, all.group);
