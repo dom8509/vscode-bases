@@ -43,7 +43,7 @@ export type FromWebview =
   /** `confirmed`: the person already agreed in the table, so the host does not ask again. */
   | { type: "edit"; target: EditTarget; edits: UiEdit[]; confirmed?: boolean }
   /** Every result of the view as it is now (all pages), to the clipboard or a CSV file. */
-  | { type: "export"; to: "clipboard" | "csv" | "markdown" | "html" }
+  | { type: "export"; to: "clipboard" | "csv" | "xlsx" | "markdown" | "html" }
   /** "+ New": a note with the values the view's filters ask for. */
   | { type: "newNote" };
 

@@ -20,7 +20,9 @@ at once.
   at most that many files, *Reset limit* shows all again. *Copy to
   clipboard* copies the view's rows and columns (all pages, tab-separated:
   they paste into a spreadsheet as cells); *Export CSV* saves them as a
-  `.csv` file. *Export Markdown* and *Export HTML* save the view as one
+  `.csv` file. In a table, *Export Excel* saves an `.xlsx` workbook: numbers
+  stay numbers, dates are dates, the header is bold and frozen, and every
+  column has a filter; a grouped table keeps its group as the first column. *Export Markdown* and *Export HTML* save the view as one
   document (chapters, titles, properties, text); open the HTML in a browser
   and print it to PDF, or open it in Word.
 - **Layouts:** in the view settings, *Layout* shows a view as a **Table**,

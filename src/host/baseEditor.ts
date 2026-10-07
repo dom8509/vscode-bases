@@ -10,6 +10,7 @@ import { updateBase, type BaseOp } from "../core/baseEdit";
 import { nextId } from "../core/autoId";
 import { documentMarkdown } from "../core/document";
 import { toDelimited } from "../core/export";
+import { toXlsx } from "../core/xlsx";
 import { bodyText, sourceKind } from "../core/record";
 import { newNote, noteText } from "../core/newNote";
 import { parseInputValue, textChange, type PropertyEdit } from "../core/writer";
@@ -215,13 +216,18 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
               break;
             }
             const baseName = document.uri.path.split("/").pop()!.replace(/\.base$/, "");
-            const ext = msg.to === "csv" ? "csv" : msg.to === "markdown" ? "md" : "html";
+            const ext = { csv: "csv", xlsx: "xlsx", markdown: "md", html: "html" }[msg.to];
             const name = `${baseName} - ${all.view.name}.${ext}`.replace(/[\\/:*?"<>|]/g, "_");
-            const filters: Record<string, string[]> = { csv: { CSV: ["csv"] }, md: { Markdown: ["md"] }, html: { HTML: ["html"] } }[ext]!;
+            const filters: Record<string, string[]> = { csv: { CSV: ["csv"] }, xlsx: { Excel: ["xlsx"] }, md: { Markdown: ["md"] }, html: { HTML: ["html"] } }[ext]!;
             const target = await vscode.window.showSaveDialog({ defaultUri: vscode.Uri.joinPath(document.uri, "..", name), filters });
             if (!target) break;
-            let out: string;
-            if (msg.to === "csv") {
+            let out: string | Uint8Array;
+            if (msg.to === "xlsx") {
+              // A grouped table keeps its groups as the first column, so Excel can filter by them.
+              const g = all.group;
+              const columns = g && !all.columns.some((c) => c.id === g.id) ? [g, ...all.columns] : all.columns;
+              out = toXlsx(columns, all.rows, all.view.name);
+            } else if (msg.to === "csv") {
               // The BOM lets Excel read the file as UTF-8.
               out = `\uFEFF${toDelimited(all.columns, all.rows, ",")}`;
             } else {
@@ -229,7 +235,7 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
               const markdown = documentMarkdown(`${baseName} – ${all.view.name}`, all.columns, all.rows, all.group);
               out = msg.to === "markdown" ? markdown : documentHtml(`${baseName} – ${all.view.name}`, markdown);
             }
-            await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(out));
+            await vscode.workspace.fs.writeFile(target, typeof out === "string" ? new TextEncoder().encode(out) : out);
             post({ type: "notice", message: `Exported ${files} to ${vscode.workspace.asRelativePath(target)}` });
             break;
           }

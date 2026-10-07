@@ -453,7 +453,7 @@ function resultsPanel(): HTMLElement {
   }, { type: "number", min: "1", placeholder: "no limit", class: "narrow" });
   const reset = iconButton("reset", "Reset limit", () => setLimit(undefined), "", "Show every matching file");
   reset.disabled = r.view.limit === undefined;
-  const exportTo = (to: "clipboard" | "csv" | "markdown" | "html") => {
+  const exportTo = (to: "clipboard" | "csv" | "xlsx" | "markdown" | "html") => {
     closePanel();
     send({ type: "export", to });
   };
@@ -466,6 +466,8 @@ function resultsPanel(): HTMLElement {
       reset,
       iconButton("clipboard", "Copy to clipboard", () => exportTo("clipboard"), "", "Copy the rows and columns of this view (all pages), tab-separated"),
       iconButton("download", "Export CSV", () => exportTo("csv"), "", "Save the rows and columns of this view (all pages) as a CSV file"),
+      // Excel only for a table: the sheet is the table.
+      ...(r.view.type === "table" ? [iconButton("spreadsheet", "Export Excel", () => exportTo("xlsx"), "", "Save this table (all pages) as an Excel workbook, with typed cells and a filter on every column")] : []),
       iconButton("document", "Export Markdown", () => exportTo("markdown"), "", "Save the view as one document: chapters, each file's properties and text"),
       iconButton("document", "Export HTML (for PDF / Word)", () => exportTo("html"), "", "Save the view as a web page: print it to PDF, or open it in Word")),
   );
