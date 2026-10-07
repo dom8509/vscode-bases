@@ -743,21 +743,6 @@ th .sort-arrow {
   gap: 6px;
 }
 
-/* --- layout picker in the view settings --- */
-
-.layouts {
-  display: flex;
-  gap: 2px;
-  padding: 2px;
-  border-radius: 6px;
-  background: var(--vscode-input-background);
-}
-
-button.clickable-icon.layout.active {
-  color: var(--vscode-foreground);
-  background: var(--vscode-toolbar-activeBackground, var(--vscode-toolbar-hoverBackground));
-}
-
 /* --- shared by cards, list and kanban --- */
 
 a.title {

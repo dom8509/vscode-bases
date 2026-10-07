@@ -243,21 +243,19 @@ function viewPanel(): HTMLElement {
   }, { type: "number", min: "1", placeholder: "no limit", class: "narrow" });
   const remove = iconButton("trash", "Delete view", () => ops({ op: "removeView", index: i }), "danger");
   remove.disabled = r.views.length <= 1;
-  const layouts = el("div", { class: "layouts", role: "radiogroup" }, ...LAYOUTS.map((l) => {
-    const b = iconButton(VIEW_ICONS[l.type]!, l.label, () => {
-      if (l.type === r.view.type) return;
-      const change: BaseOp[] = [{ op: "setView", index: i, key: "type", value: l.type }];
-      // A board needs something to group by: the first property that is not the file's.
-      if (l.type === "kanban" && !r.view.groupBy) {
-        const first = r.columns.find((c) => c.editable)?.id ?? r.propertyNames[0];
-        if (first) change.push({ op: "setView", index: i, key: "groupBy", value: { property: first } });
-      }
-      ops(...change);
-    }, l.type === r.view.type ? "layout active" : "layout");
-    b.setAttribute("role", "radio");
-    b.setAttribute("aria-checked", String(l.type === r.view.type));
-    return b;
-  }));
+  const layout = select("view-layout", [
+    ...LAYOUTS.map((l) => ({ value: l.type as string, label: l.label })),
+    // A layout this extension does not draw (e.g. Obsidian's map) stays chosen; it shows as a table.
+    ...(LAYOUTS.some((l) => l.type === r.view.type) ? [] : [{ value: r.view.type, label: `${r.view.type} (shown as table)` }]),
+  ], r.view.type, (type) => {
+    const change: BaseOp[] = [{ op: "setView", index: i, key: "type", value: type }];
+    // A board needs something to group by: the first property that is not the file's.
+    if (type === "kanban" && !r.view.groupBy) {
+      const first = r.columns.find((c) => c.editable)?.id ?? r.propertyNames[0];
+      if (first) change.push({ op: "setView", index: i, key: "groupBy", value: { property: first } });
+    }
+    ops(...change);
+  });
   const groupBy = r.view.type === "kanban"
     ? [el("label", { class: "field" }, el("span", {}, "Group by"),
       select("view-group", [{ value: "", label: "—" }, ...propertyOptions(r.view.groupBy ? [r.view.groupBy.property] : [])], r.view.groupBy?.property ?? "", (v) =>
@@ -265,7 +263,7 @@ function viewPanel(): HTMLElement {
     : [];
   return el("div", { class: "panel" },
     el("div", { class: "panel-title" }, "View settings"),
-    el("div", { class: "field" }, el("span", {}, "Layout"), layouts),
+    el("label", { class: "field" }, el("span", {}, "Layout"), layout),
     ...groupBy,
     el("label", { class: "field" }, el("span", {}, "Name"), name),
     el("label", { class: "field" }, el("span", {}, "Result limit"), limit),
