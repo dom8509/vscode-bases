@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { NEW_BASE } from "./core/baseEdit";
 import { BaseEditorProvider, VIEW_TYPE } from "./host/baseEditor";
+import { registerPreviewProvider } from "./host/edits";
 import { WorkspaceIndex } from "./host/indexer";
 
 let index: WorkspaceIndex | undefined;
@@ -14,6 +15,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     log,
     index,
+    registerPreviewProvider(),
     vscode.window.registerCustomEditorProvider(VIEW_TYPE, new BaseEditorProvider(context, index, log), {
       webviewOptions: { retainContextWhenHidden: true },
     }),

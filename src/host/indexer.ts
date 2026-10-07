@@ -10,6 +10,7 @@ import type { FileInfo } from "../core/expr";
 import { isFresh, parseCache, serializeCache, type CacheEntry } from "../core/indexCache";
 import { parseRecord, sourceKind, type FileRecord } from "../core/record";
 import type { IndexProgress } from "../protocol";
+import { disk, type DiskStat } from "./disk";
 
 export function fileInfo(uri: vscode.Uri, stat: { mtime: number; ctime: number; size: number }): FileInfo {
   const path = vscode.workspace.asRelativePath(uri, vscode.workspace.workspaceFolders !== undefined && vscode.workspace.workspaceFolders.length > 1);
@@ -133,7 +134,7 @@ export class WorkspaceIndex implements vscode.Disposable {
           const key = uri.toString();
           seen.add(key);
           try {
-            const stat = await vscode.workspace.fs.stat(uri);
+            const stat = await disk.stat(uri);
             const entry = cached.get(key);
             if (isFresh(entry, stat) && !open.get(key)?.isDirty) {
               this.disk.set(key, entry);
@@ -205,13 +206,13 @@ export class WorkspaceIndex implements vscode.Disposable {
   }
 
   /** Reads and parses one file; an open editor's text wins over the disk. */
-  private async load(uri: vscode.Uri, stat?: vscode.FileStat): Promise<void> {
+  private async load(uri: vscode.Uri, stat?: DiskStat): Promise<void> {
     const key = uri.toString();
-    stat ??= await vscode.workspace.fs.stat(uri);
+    stat ??= await disk.stat(uri);
     const info = fileInfo(uri, stat);
     if (!sourceKind(info.ext)) return;
     const doc = vscode.workspace.textDocuments.find((d) => d.uri.toString() === key);
-    const text = doc ? doc.getText() : new TextDecoder().decode(await vscode.workspace.fs.readFile(uri));
+    const text = doc ? doc.getText() : new TextDecoder().decode(await disk.read(uri));
     const record = parseRecord(key, info, text);
     if (!record) return;
     this.records.set(key, record);

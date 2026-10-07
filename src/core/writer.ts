@@ -199,3 +199,52 @@ export function textChange(original: string, next: string, offset = 0): TextChan
   while (tail < original.length - head && tail < next.length - head && original[original.length - 1 - tail] === next[next.length - 1 - tail]) tail++;
   return { start: offset + head, end: offset + original.length - tail, text: next.slice(head, next.length - tail) };
 }
+
+/**
+ * The changed lines between two texts as a unified diff (`-` removed, `+`
+ * added), with `context` unchanged lines around each change; hunks separated
+ * by `@@` lines with 1-based line numbers. Empty when nothing changed.
+ */
+export function lineDiff(before: string, after: string, context = 1): string[] {
+  const b = before.split(/\r?\n/);
+  const a = after.split(/\r?\n/);
+  const pairs = [...matchLines(b, a), [b.length, a.length] as [number, number]];
+
+  // Walk the matches; between two matches lie removed and added lines.
+  type Line = { text: string; changed: boolean; bLine: number; aLine: number };
+  const lines: Line[] = [];
+  let bi = 0;
+  let ai = 0;
+  for (const [pb, pa] of pairs) {
+    for (; bi < pb; bi++) lines.push({ text: `-${b[bi]}`, changed: true, bLine: bi, aLine: ai });
+    for (; ai < pa; ai++) lines.push({ text: `+${a[ai]}`, changed: true, bLine: bi, aLine: ai });
+    if (pb < b.length) lines.push({ text: ` ${b[pb]}`, changed: false, bLine: pb, aLine: pa });
+    bi = pb + 1;
+    ai = pa + 1;
+  }
+
+  const out: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    if (!lines[i]!.changed) {
+      i++;
+      continue;
+    }
+    // A hunk: context before, the changes, and context after, merging hunks that touch.
+    let start = Math.max(0, i - context);
+    while (start < i && lines[start]!.changed) start++;
+    let end = i;
+    for (;;) {
+      while (end < lines.length && lines[end]!.changed) end++;
+      let next = end;
+      while (next < lines.length && !lines[next]!.changed && next - end < 2 * context + 1) next++;
+      if (next < lines.length && lines[next]!.changed && next - end <= 2 * context) end = next;
+      else break;
+    }
+    const stop = Math.min(lines.length, end + context);
+    out.push(`@@ line ${lines[start]!.bLine + 1} @@`);
+    for (let k = start; k < stop; k++) out.push(lines[k]!.text);
+    i = stop;
+  }
+  return out;
+}

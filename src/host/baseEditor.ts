@@ -132,11 +132,18 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
             await vscode.commands.executeCommand("vscode.openWith", document.uri, "default");
             break;
           case "edit": {
-            const outcome = await applyPropertyEdits(await resolveTarget(msg.target), msg.edits.map(toPropertyEdit));
+            const confirm = vscode.workspace.getConfiguration("bases").get<boolean>("confirmBulkEdits", true);
+            const outcome = await applyPropertyEdits(await resolveTarget(msg.target), msg.edits.map(toPropertyEdit), { confirm });
+            for (const f of outcome.failures) this.log.warn(`Not changed: ${f}`);
             if (outcome.failures.length > 0) {
-              void vscode.window.showWarningMessage(`${outcome.failures.length} file(s) not changed: ${outcome.failures.slice(0, 3).join("; ")}`);
+              void vscode.window.showWarningMessage(`${outcome.failures.length} file(s) not changed: ${outcome.failures.slice(0, 3).join("; ")}${outcome.failures.length > 3 ? " … (all in the Bases output)" : ""}`);
+            }
+            if (outcome.concurrent.length > 0) {
+              void vscode.window.showWarningMessage(`Something else changed ${outcome.concurrent.length} file(s) while they were edited; check them: ${outcome.concurrent.slice(0, 3).join(", ")}`);
             }
             if (outcome.applied) post({ type: "notice", message: `${outcome.changed} file(s) changed` });
+            // A cell shows its new value at once; a render puts back the truth if the edit did not happen.
+            if (!outcome.applied) scheduleRender();
             break;
           }
         }

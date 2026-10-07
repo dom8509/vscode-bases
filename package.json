@@ -70,7 +70,7 @@
         "bases.confirmBulkEdits": {
           "type": "boolean",
           "default": true,
-          "description": "Show the Refactor Preview before an edit that touches more than one file."
+          "description": "Ask before an edit that changes more than one file, with the option to see the changes as a diff first."
         },
         "bases.pageSize": {
           "type": "integer",

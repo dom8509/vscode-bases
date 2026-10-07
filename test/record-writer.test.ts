@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyEdits, parseInputValue, type PropertyEdit } from "../src/core/writer";
+import { applyEdits, lineDiff, parseInputValue, type PropertyEdit } from "../src/core/writer";
 import { record } from "./helpers";
 
 function edit(text: string, ext: string, edits: PropertyEdit[]): string {
@@ -119,5 +119,26 @@ describe("line merge", () => {
     expect(edit(text, "yaml", [{ kind: "set", key: "d", value: 4 }])).toBe(text + "d: 4\n");
     // The blank line yaml attaches to a deleted key goes with it.
     expect(edit(text, "yaml", [{ kind: "delete", key: "b" }])).toBe(text.replace("\nb: 2\n", ""));
+  });
+});
+
+describe("line diff", () => {
+  it("shows changed lines with one line of context", () => {
+    const before = "---\ntitle: A\nstatus: open\npriority: 2\nowner: dom\n---\nbody\n";
+    const after = "---\ntitle: A\nstatus: done\npriority: 2\nowner: dom\n---\nbody\n";
+    expect(lineDiff(before, after)).toEqual(["@@ line 2 @@", " title: A", "-status: open", "+status: done", " priority: 2"]);
+  });
+
+  it("merges nearby changes into one hunk and keeps distant ones apart", () => {
+    const before = "a\nb\nc\nd\ne\nf\ng\nh\n";
+    expect(lineDiff(before, "A\nb\nC\nd\ne\nf\ng\nH\n")).toEqual(["@@ line 1 @@", "-a", "+A", " b", "-c", "+C", " d", "@@ line 7 @@", " g", "-h", "+H", " "]);
+  });
+
+  it("is empty when nothing changed", () => {
+    expect(lineDiff("a\nb\n", "a\nb\n")).toEqual([]);
+  });
+
+  it("shows added frontmatter", () => {
+    expect(lineDiff("# T\n", "---\nx: 1\n---\n# T\n")).toEqual(["@@ line 1 @@", "+---", "+x: 1", "+---", " # T"]);
   });
 });

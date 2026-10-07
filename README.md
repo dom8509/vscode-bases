@@ -40,9 +40,8 @@ at once.
 - **Edit many files:** tick rows (Shift-click for a range; the header box
   ticks the page, then *Select all* every matching file), then fill in
   *property* and *value* in the bar above the table and choose *Set*,
-  *Remove* or *Rename*. With more than one file, VS Code's Refactor Preview
-  shows every change before it is applied (`bases.confirmBulkEdits`). The
-  whole edit is one undo step.
+  *Remove* or *Rename*. With more than one file you are asked first
+  (`bases.confirmBulkEdits`); *Show Changes* opens the diff of every file.
 - **Open a file:** click its name.
 - **Edit the YAML:** *YAML* in the toolbar, or *Bases: Open Base as Text*.
   Everything the menus change is written to the `.base` file, in the order
@@ -55,9 +54,31 @@ at once.
 | `*.md`, `*.markdown` | the YAML frontmatter; a file without one has none, and setting a property creates it |
 | `*.yml`, `*.yaml` | the top-level keys of the file; multi-document files and files whose top level is not a mapping are listed but read-only |
 
-Edits only rewrite the lines they change: comments, key order, quoting and
-indentation elsewhere stay as they were. A file that already holds unsaved
-changes in an editor is edited but not saved.
+### How an edit reaches the files
+
+The files are the truth; the table only shows them. An edit — one cell or a
+thousand rows — changes the files first, and the index then reads them again
+and every open base updates.
+
+- Edits run one after another, each on the text the one before left, so
+  quick edits to one file all land.
+- A file no editor holds is read, changed and written at once; just before
+  writing, the extension checks that it has not changed since it was read,
+  and computes the change again if it has. No formatter runs on it.
+- A file open in an editor is changed in the editor, so its undo history
+  keeps the edit, and then saved — unless it held unsaved changes before:
+  those stay yours to save or discard.
+- Only the lines that change are rewritten: comments, key order, quoting and
+  indentation elsewhere stay as they were. A UTF-8 BOM is kept; a file that
+  is not UTF-8 is left alone and reported.
+- What was asked about is not what is applied: after you confirm, every
+  change is computed again from the files as they are then.
+- Files that cannot be edited (YAML errors, multi-document YAML, a rename
+  onto an existing key) are reported; the others are changed.
+
+Undo: Cmd+Z in the table undoes the last change to the `.base` file. A
+property edit in a file that was open in an editor can be undone there; for
+the others use Git.
 
 ## The .base format
 
@@ -121,9 +142,10 @@ Measured with 20,000 notes (`npm run test:perf`):
 
 | | |
 |---|---|
-| first start, no cache | 2.4 s until the index is complete |
-| later starts | rows after 56 ms; the check against the disk takes 0.8 s in the background |
-| computing a view | 18 ms |
+| first start, no cache | 1.0 s until the index is complete |
+| later starts | rows after 61 ms; the check against the disk takes 0.1 s in the background |
+| computing a view | 19 ms |
+| setting a property in 2,000 files | 0.2 s |
 
 To index less, narrow `bases.include` or add folders to `bases.exclude`.
 
@@ -133,7 +155,7 @@ To index less, narrow `bases.include` or add folders to `bases.exclude`.
 |---|---|---|
 | `bases.include` | `**/*.{md,markdown,yml,yaml}` | files a base indexes |
 | `bases.exclude` | `**/node_modules/**`, `**/.git/**` | excluded on top of `files.exclude` |
-| `bases.confirmBulkEdits` | `true` | Refactor Preview for edits to more than one file |
+| `bases.confirmBulkEdits` | `true` | ask before an edit to more than one file, with a diff on request |
 | `bases.pageSize` | `50` | rows per page |
 
 ## Development

@@ -3,6 +3,7 @@
 
 import * as vscode from "vscode";
 import { computeView, parseBase } from "../../src/core/base";
+import { applyPropertyEdits } from "../../src/host/edits";
 import { WorkspaceIndex } from "../../src/host/indexer";
 
 export async function run(): Promise<void> {
@@ -31,7 +32,13 @@ export async function run(): Promise<void> {
 
   const base = parseBase('filters: status != "done"\nviews:\n  - type: table\n    name: x\n    order: [file.name, status, priority, tags]\n    sort:\n      - property: priority\n        direction: DESC\n');
   const [view, viewMs] = await time(() => computeView(base, warm.all(), { viewIndex: 0 }));
+  // A bulk edit of 2,000 files, as "Set" in the table does it.
+  const targets = [...warm.all()].slice(0, 2000).map((r) => vscode.Uri.parse(r.uri));
   warm.dispose();
+  const [bulk, bulkMs] = await time(() => applyPropertyEdits(targets, [{ kind: "set", key: "status", value: "archived" }]));
+  let onDisk = 0;
+  for (const u of targets) if (new TextDecoder().decode(await vscode.workspace.fs.readFile(u)).includes("status: archived")) onDisk++;
+  const unsaved = vscode.workspace.textDocuments.filter((d) => d.isDirty).length;
   await vscode.workspace.fs.delete(storage, { recursive: true }).then(undefined, () => undefined);
 
   console.log(`  files indexed:                       ${files}`);
@@ -40,4 +47,6 @@ export async function run(): Promise<void> {
   console.log(`  warm start, rows shown after:        ${firstShowMs} ms   (${shown} records from cache)`);
   console.log(`  warm start, check against disk:      ${checkMs} ms more   ${JSON.stringify(warm.lastScan)}`);
   console.log(`  computing a view (${view.matchCount} matches):    ${viewMs} ms`);
+  console.log(`  bulk edit, 2,000 files written:     ${bulkMs} ms   ${JSON.stringify({ applied: bulk.applied, changed: bulk.changed, concurrent: bulk.concurrent.length, onDisk, unsaved })}`);
+  if (onDisk !== targets.length || unsaved > 0) throw new Error(`bulk edit left ${targets.length - onDisk} file(s) unwritten and ${unsaved} unsaved`);
 }

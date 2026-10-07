@@ -53,7 +53,7 @@ const tests: [string, (ws: vscode.Uri, index: WorkspaceIndex) => Promise<void>][
       const idea = vscode.Uri.joinPath(ws, "notes/idea.md");
       const app = vscode.Uri.joinPath(ws, "deploy/app.yaml");
       const outcome = await applyPropertyEdits([alpha, idea, app], [{ kind: "set", key: "reviewed", value: true }]);
-      assert.deepEqual(outcome, { applied: true, changed: 3, failures: [] });
+      assert.deepEqual(outcome, { applied: true, changed: 3, failures: [], concurrent: [] });
 
       await waitFor("the edit saved to disk", async () => (await read(alpha)).includes("reviewed: true"));
       assert.equal((await read(alpha)).split("---")[1], "\ntitle: Alpha\nstatus: open\npriority: 2\nowner: dom\ntags: [project, safety]\ndue: 2026-11-01\nreviewed: true\n");
@@ -75,6 +75,58 @@ const tests: [string, (ws: vscode.Uri, index: WorkspaceIndex) => Promise<void>][
       assert.equal(outcome.changed, 1);
       assert.match(outcome.failures[0]!, /notes\/multi.yaml: Multi-document/);
       await waitFor("the rename saved", async () => (await read(beta)).includes("assignee: anna"));
+    },
+  ],
+  [
+    "applies quick edits to one file one after the other, losing none",
+    async (ws) => {
+      const alpha = vscode.Uri.joinPath(ws, "projects/alpha.md");
+      const outcomes = await Promise.all([
+        applyPropertyEdits([alpha], [{ kind: "set", key: "status", value: "a-much-longer-status-value" }]),
+        applyPropertyEdits([alpha], [{ kind: "set", key: "owner", value: "someone-else" }]),
+        applyPropertyEdits([alpha, vscode.Uri.joinPath(ws, "projects/beta.md")], [{ kind: "set", key: "round", value: 2 }]),
+      ]);
+      assert.deepEqual(outcomes.map((o) => o.applied), [true, true, true]);
+      const text = await read(alpha);
+      assert.match(text, /status: a-much-longer-status-value\n/);
+      assert.match(text, /owner: someone-else\n/);
+      assert.match(text, /round: 2\n/);
+      assert.match(await read(vscode.Uri.joinPath(ws, "projects/beta.md")), /round: 2\n/);
+      assert.match(text, /^---\ntitle: Alpha\n/, "the file is intact");
+    },
+  ],
+  [
+    "writes a bulk edit of more files than VS Code keeps open to disk, all of them",
+    async (ws) => {
+      const uris: vscode.Uri[] = [];
+      for (let i = 0; i < 300; i++) {
+        const u = vscode.Uri.joinPath(ws, `many/n${i}.md`);
+        await vscode.workspace.fs.writeFile(u, new TextEncoder().encode(`---\nstatus: open\nn: ${i}\n---\n# Note ${i}\n`));
+        uris.push(u);
+      }
+      const outcome = await applyPropertyEdits(uris, [{ kind: "set", key: "status", value: "done" }]);
+      assert.deepEqual(outcome, { applied: true, changed: 300, failures: [], concurrent: [] });
+      let onDisk = 0;
+      for (const u of uris) if ((await read(u)) === `---\nstatus: done\nn: ${uris.indexOf(u)}\n---\n# Note ${uris.indexOf(u)}\n`) onDisk++;
+      assert.equal(onDisk, 300, "every file on disk holds the edit, and nothing else changed");
+      assert.equal(vscode.workspace.textDocuments.filter((d) => d.isDirty && d.uri.path.includes("/many/")).length, 0, "no unsaved documents left behind");
+    },
+  ],
+  [
+    "keeps a BOM and leaves a file that is not UTF-8 alone",
+    async (ws) => {
+      const bom = vscode.Uri.joinPath(ws, "notes/bom.md");
+      const latin1 = vscode.Uri.joinPath(ws, "notes/latin1.md");
+      await vscode.workspace.fs.writeFile(bom, new Uint8Array([0xef, 0xbb, 0xbf, ...new TextEncoder().encode("---\na: 1\n---\n")]));
+      const latin1Bytes = new Uint8Array([...new TextEncoder().encode("---\nname: M"), 0xfc, ...new TextEncoder().encode("ller\n---\n")]);
+      await vscode.workspace.fs.writeFile(latin1, latin1Bytes);
+      const outcome = await applyPropertyEdits([bom, latin1], [{ kind: "set", key: "b", value: 2 }]);
+      assert.equal(outcome.changed, 1);
+      assert.match(outcome.failures[0]!, /latin1.md: not UTF-8/);
+      const bomBytes = await vscode.workspace.fs.readFile(bom);
+      assert.deepEqual([...bomBytes.slice(0, 3)], [0xef, 0xbb, 0xbf], "BOM kept");
+      assert.equal(new TextDecoder().decode(bomBytes), "---\na: 1\nb: 2\n---\n");
+      assert.deepEqual([...(await vscode.workspace.fs.readFile(latin1))], [...latin1Bytes], "untouched, byte for byte");
     },
   ],
   [
