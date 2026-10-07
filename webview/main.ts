@@ -712,10 +712,9 @@ function togglePanel(p: Panel): void {
   render();
 }
 
-/** A floating window under its toolbar button, as Obsidian shows the view, sort, filter and properties menus. */
+/** A floating window under its toolbar button, as Obsidian shows the view, sort, filter and properties menus; Escape or a click outside closes it. */
 function popover(content: HTMLElement, align: "left" | "right"): HTMLElement {
   content.classList.add("popover", `align-${align}`);
-  content.prepend(iconButton("x", undefined, closePanel, "panel-close", "Close (Escape)"));
   return content;
 }
 

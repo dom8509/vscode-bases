@@ -296,17 +296,11 @@ select {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding-right: 24px;
 }
 
 .panel-head button.back {
   margin-left: -4px;
   padding: 2px;
-}
-
-.popover > .panel-title,
-.popover > .row:nth-child(2) {
-  padding-right: 24px;
 }
 
 .panel .row {
@@ -560,12 +554,6 @@ td.type-checkbox {
   outline: none;
   padding: 1px 2px;
   background: transparent;
-}
-
-button.panel-close {
-  position: absolute;
-  top: 6px;
-  right: 6px;
 }
 
 /* --- icons --- */
@@ -994,7 +982,7 @@ ul.list {
 /* --- view settings: layout picker and "…" menu --- */
 
 .view-panel .panel-head {
-  padding-right: 52px;
+  padding-right: 28px;
 }
 
 .submenu-anchor {
@@ -1004,7 +992,7 @@ ul.list {
 .view-more {
   position: absolute;
   top: 6px;
-  right: 30px;
+  right: 6px;
 }
 
 .view-panel .view-menu {
