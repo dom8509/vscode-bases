@@ -313,6 +313,8 @@ function viewSwitcher(): HTMLElement {
   const r = result!;
   const viewIcon = (type: string) => el("span", { class: "view-icon" }, icon(VIEW_ICONS[type] ?? "table"));
   const toggle = button("", () => {
+    // With a view's settings open, the button closes them; it does not go back to the list.
+    if (panel === "view") return closePanel();
     viewMenuOpen = !viewMenuOpen;
     if (viewMenuOpen) panel = undefined;
     render();
