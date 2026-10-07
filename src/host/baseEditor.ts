@@ -145,9 +145,6 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
           case "open":
             await vscode.window.showTextDocument(vscode.Uri.parse(msg.uri), { preview: true, viewColumn: vscode.ViewColumn.Beside });
             break;
-          case "openAsText":
-            await reopenWith(document.uri, "default");
-            break;
           case "edit": {
             const confirm = !msg.confirmed && vscode.workspace.getConfiguration("bases").get<boolean>("confirmBulkEdits", true);
             const outcome = await applyPropertyEdits(await resolveTarget(msg.target), msg.edits.map(toPropertyEdit), { confirm });

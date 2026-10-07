@@ -521,8 +521,6 @@ function toolbar(): HTMLElement {
     tool("properties", "properties", "Properties", 0, propertiesPanel),
     ...(searchOpen ? [el("label", { class: "search-box" }, searchBox)] : []),
     searchToggle,
-    el("span", { class: "divider" }),
-    iconButton("fileCode", undefined, () => send({ type: "openAsText" }), "tool", "Show source (YAML)"),
   );
 }
 

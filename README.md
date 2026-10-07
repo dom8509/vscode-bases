@@ -49,7 +49,7 @@ at once.
   (`bases.confirmBulkEdits`); *Show Changes* opens the diff of every file.
 - **Open a file:** click its name.
 - **Edit the YAML:** the source icon at the top right of the editor (as for
-  Markdown), the source icon in the toolbar, or Cmd/Ctrl+Shift+V. The same
+  Markdown) or Cmd/Ctrl+Shift+V. The same
   icon and keys in the YAML go back to the table.
   Everything the menus change is written to the `.base` file, in the order
   Obsidian uses, and only the lines that change are rewritten.

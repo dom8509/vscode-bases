@@ -18,7 +18,6 @@ const PATHS = {
   plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
   x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
   code: '<path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/>',
-  fileCode: '<path d="M10 12.5 8 15l2 2.5"/><path d="m14 12.5 2 2.5-2 2.5"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/>',
   grip: '<circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/>',
   arrowUp: '<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
   arrowDown: '<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>',

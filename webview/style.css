@@ -632,12 +632,6 @@ button.clickable-icon.danger {
   background: transparent;
 }
 
-.divider {
-  width: 1px;
-  height: 18px;
-  margin: 0 4px;
-  background: var(--vscode-panel-border);
-}
 
 .view-icon,
 .chevron,
