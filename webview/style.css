@@ -1056,3 +1056,32 @@ button.layout-button.open {
 .popover.view-panel {
   overflow: visible;
 }
+
+/* --- filter window: one folding section for all views, one for this view --- */
+
+.filter-section + .filter-section {
+  border-top: 1px solid var(--vscode-panel-border);
+  padding-top: 6px;
+}
+
+button.filter-section-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 3px 4px;
+  font-weight: 600;
+  text-align: left;
+  color: var(--vscode-foreground);
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+}
+
+button.filter-section-head:hover {
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+}
+
+.filter-section.open > .filter-group {
+  margin: 4px 0 6px 20px;
+}

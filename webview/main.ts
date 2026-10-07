@@ -29,7 +29,9 @@ let error: string | undefined;
 let notice: string | undefined;
 let noticeTimer: number | undefined;
 let panel: Panel;
-let filterScope: "view" | "base" = "view";
+type FilterScope = "view" | "base";
+/** Which filter sections of the filter window are folded shut. */
+const filtersFolded: Record<FilterScope, boolean> = { base: false, view: false };
 let search = "";
 // The search box shows only when asked for, as in Obsidian.
 let searchOpen = false;
@@ -379,16 +381,16 @@ function sortPanel(): HTMLElement {
 
 // --- filters ------------------------------------------------------------------
 
-function currentFilter(): FilterGroup {
+function currentFilter(scope: FilterScope): FilterGroup {
   const r = result!;
-  if (filterScope === "base") return drafts.base ?? r.baseFilter;
+  if (scope === "base") return drafts.base ?? r.baseFilter;
   return drafts.view && drafts.view.index === r.viewIndex ? drafts.view.group : r.viewFilter;
 }
 
-function writeFilter(group: FilterGroup): void {
+function writeFilter(scope: FilterScope, group: FilterGroup): void {
   const r = result!;
   const filters = fromModel(group);
-  if (filterScope === "base") {
+  if (scope === "base") {
     drafts.base = group;
     ops({ op: "setBaseFilters", filters });
   } else {
@@ -410,8 +412,8 @@ function countConditions(g: FilterGroup): number {
 }
 
 /** Edits a copy of the filter tree at `path` and writes it. */
-function updateFilter(path: number[], change: (node: FilterNode, parent: FilterGroup | undefined, index: number) => FilterNode | null): void {
-  const root = structuredClone(currentFilter());
+function updateFilter(scope: FilterScope, path: number[], change: (node: FilterNode, parent: FilterGroup | undefined, index: number) => FilterNode | null): void {
+  const root = structuredClone(currentFilter(scope));
   let parent: FilterGroup | undefined;
   let node: FilterNode = root;
   for (const i of path) {
@@ -420,74 +422,79 @@ function updateFilter(path: number[], change: (node: FilterNode, parent: FilterG
   }
   const next = change(node, parent, path.at(-1) ?? 0);
   if (!parent) {
-    writeFilter((next ?? { kind: "group", conj: "and", children: [] }) as FilterGroup);
+    writeFilter(scope, (next ?? { kind: "group", conj: "and", children: [] }) as FilterGroup);
     return;
   }
   const i = path.at(-1)!;
   if (next === null) parent.children.splice(i, 1);
   else parent.children[i] = next;
-  writeFilter(root);
+  writeFilter(scope, root);
 }
 
 function operatorsFor(property: string): { value: Operator; label: string }[] {
   return OPERATORS.filter((o) => !o.only || o.only === property).map((o) => ({ value: o.op, label: o.label }));
 }
 
-function filterNode(node: FilterNode, path: number[], depth: number): HTMLElement {
-  const key = `f-${filterScope}-${path.join(".")}`;
+function filterNode(scope: FilterScope, node: FilterNode, path: number[], depth: number): HTMLElement {
+  const key = `f-${scope}-${path.join(".")}`;
   if (node.kind === "group") {
     const head = el("div", { class: "row" },
-      select(`${key}-conj`, CONJUNCTIONS.map((c) => ({ value: c.conj, label: c.label })), node.conj, (v: Conjunction) => updateFilter(path, (n) => ({ ...(n as FilterGroup), conj: v }))),
+      select(`${key}-conj`, CONJUNCTIONS.map((c) => ({ value: c.conj, label: c.label })), node.conj, (v: Conjunction) => updateFilter(scope, path, (n) => ({ ...(n as FilterGroup), conj: v }))),
     );
-    if (depth > 0) head.append(iconButton("x", undefined, () => updateFilter(path, () => null), "", "Remove group"));
+    if (depth > 0) head.append(iconButton("x", undefined, () => updateFilter(scope, path, () => null), "", "Remove group"));
     return el("div", { class: depth > 0 ? "filter-group nested" : "filter-group" },
       head,
-      ...node.children.map((c, i) => filterNode(c, [...path, i], depth + 1)),
+      ...node.children.map((c, i) => filterNode(scope, c, [...path, i], depth + 1)),
       el("div", { class: "row" },
-        iconButton("plus", "Add filter", () => updateFilter(path, (n) => ({ ...(n as FilterGroup), children: [...(n as FilterGroup).children, { kind: "cond", property: "file.name", op: "contains", value: "" }] })), "add"),
-        iconButton("plus", "Add filter group", () => updateFilter(path, (n) => ({ ...(n as FilterGroup), children: [...(n as FilterGroup).children, { kind: "group", conj: "and", children: [] }] })), "add"),
+        iconButton("plus", "Add filter", () => updateFilter(scope, path, (n) => ({ ...(n as FilterGroup), children: [...(n as FilterGroup).children, { kind: "cond", property: "file.name", op: "contains", value: "" }] })), "add"),
+        iconButton("plus", "Add filter group", () => updateFilter(scope, path, (n) => ({ ...(n as FilterGroup), children: [...(n as FilterGroup).children, { kind: "group", conj: "and", children: [] }] })), "add"),
       ),
     );
   }
   if (node.kind === "expr") {
     return el("div", { class: "row" },
-      textInput(`${key}-expr`, node.expr, (v) => updateFilter(path, () => ({ kind: "expr", expr: v })), { class: "expr", placeholder: 'e.g. date(due) < today() && status != "done"' }),
-      iconButton("x", undefined, () => updateFilter(path, () => null), "", "Remove filter"),
+      textInput(`${key}-expr`, node.expr, (v) => updateFilter(scope, path, () => ({ kind: "expr", expr: v })), { class: "expr", placeholder: 'e.g. date(due) < today() && status != "done"' }),
+      iconButton("x", undefined, () => updateFilter(scope, path, () => null), "", "Remove filter"),
     );
   }
   const op = OPERATORS.find((o) => o.op === node.op)!;
   const row = el("div", { class: "row" },
     select(`${key}-p`, propertyOptions([node.property]), node.property, (v) =>
-      updateFilter(path, (n) => {
+      updateFilter(scope, path, (n) => {
         const c = n as Extract<FilterNode, { kind: "cond" }>;
         // An operator that only fits the old property falls back to "is".
         const fits = operatorsFor(v).some((o) => o.value === c.op);
         return { ...c, property: v, op: fits ? c.op : v === "file.tags" ? "hasTag" : v === "file.folder" ? "inFolder" : "is" };
       })),
-    select(`${key}-op`, operatorsFor(node.property), node.op, (v) => updateFilter(path, (n) => ({ ...(n as Extract<FilterNode, { kind: "cond" }>), op: v }))),
+    select(`${key}-op`, operatorsFor(node.property), node.op, (v) => updateFilter(scope, path, (n) => ({ ...(n as Extract<FilterNode, { kind: "cond" }>), op: v }))),
   );
-  if (op.needsValue) row.append(textInput(`${key}-v`, node.value, (v) => updateFilter(path, (n) => ({ ...(n as Extract<FilterNode, { kind: "cond" }>), value: v })), { placeholder: "value" }));
+  if (op.needsValue) row.append(textInput(`${key}-v`, node.value, (v) => updateFilter(scope, path, (n) => ({ ...(n as Extract<FilterNode, { kind: "cond" }>), value: v })), { placeholder: "value" }));
   row.append(
-    iconButton("code", undefined, () => updateFilter(path, (n) => ({ kind: "expr", expr: conditionExpr(n as Extract<FilterNode, { kind: "cond" }>) })), "", "Edit as expression"),
-    iconButton("x", undefined, () => updateFilter(path, () => null), "", "Remove filter"),
+    iconButton("code", undefined, () => updateFilter(scope, path, (n) => ({ kind: "expr", expr: conditionExpr(n as Extract<FilterNode, { kind: "cond" }>) })), "", "Edit as expression"),
+    iconButton("x", undefined, () => updateFilter(scope, path, () => null), "", "Remove filter"),
   );
   return row;
 }
 
 function filterPanel(): HTMLElement {
-  const r = result!;
-  const scope = (s: "view" | "base", label: string) =>
-    button(label, () => {
-      filterScope = s;
+  /** A section that folds open and shut: first the filters of all views, then this view's. */
+  const section = (scope: FilterScope, label: string) => {
+    const group = currentFilter(scope);
+    const open = !filtersFolded[scope];
+    const head = button("", () => {
+      filtersFolded[scope] = open;
       render();
-    }, filterScope === s ? "tab active" : "tab");
+    }, "filter-section-head", open ? `Hide ${label.toLowerCase()} filters` : `Show ${label.toLowerCase()} filters`);
+    head.dataset.key = `filters-${scope}`;
+    head.setAttribute("aria-expanded", String(open));
+    const count = countConditions(group);
+    head.append(el("span", { class: "chevron" }, icon(open ? "chevronDown" : "chevronRight")), el("span", { class: "filter-section-label" }, label), ...(count ? [el("span", { class: "badge" }, String(count))] : []));
+    return el("div", { class: open ? "filter-section open" : "filter-section" }, head, ...(open ? [filterNode(scope, group, [], 0)] : []));
+  };
   return el("div", { class: "panel" },
-    el("div", { class: "row" },
-      el("span", { class: "panel-title" }, "Filters"),
-      scope("view", `This view (${countConditions(drafts.view?.index === r.viewIndex ? drafts.view.group : r.viewFilter)})`),
-      scope("base", `All views (${countConditions(drafts.base ?? r.baseFilter)})`),
-    ),
-    filterNode(currentFilter(), [], 0),
+    el("div", { class: "panel-title" }, "Filters"),
+    section("base", "All views"),
+    section("view", "This view"),
   );
 }
 
