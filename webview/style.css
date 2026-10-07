@@ -284,6 +284,14 @@ select {
   margin-right: 8px;
 }
 
+.actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  margin-left: -6px;
+}
+
 .panel-head {
   display: flex;
   align-items: center;

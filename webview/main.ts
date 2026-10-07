@@ -284,12 +284,21 @@ function resultsPanel(): HTMLElement {
     const n = Number.parseInt(v, 10);
     setLimit(Number.isFinite(n) && n > 0 ? n : undefined);
   }, { type: "number", min: "1", placeholder: "no limit", class: "narrow" });
-  const row = el("label", { class: "field" }, el("span", {}, "Limit"), limit);
-  if (r.view.limit !== undefined) row.append(iconButton("x", undefined, () => setLimit(undefined), "", "No limit"));
+  const reset = iconButton("reset", "Reset limit", () => setLimit(undefined), "", "Show every matching file");
+  reset.disabled = r.view.limit === undefined;
+  const exportTo = (to: "clipboard" | "csv") => {
+    closePanel();
+    send({ type: "export", to });
+  };
   return el("div", { class: "panel" },
     el("div", { class: "panel-title" }, "Results"),
-    row,
+    el("label", { class: "field" }, el("span", {}, "Limit"), limit),
     el("p", { class: "hint" }, r.view.limit !== undefined ? `Shows the first ${r.view.limit} of ${r.total.toLocaleString()} matching files.` : `All ${r.total.toLocaleString()} matching files.`),
+    el("div", { class: "menu-sep" }),
+    el("div", { class: "actions" },
+      reset,
+      iconButton("clipboard", "Copy to clipboard", () => exportTo("clipboard"), "", "Copy the rows and columns of this view (all pages), tab-separated"),
+      iconButton("download", "Export CSV", () => exportTo("csv"), "", "Save the rows and columns of this view (all pages) as a CSV file")),
   );
 }
 

@@ -5,6 +5,7 @@
 import * as vscode from "vscode";
 import { computeView, DEFAULT_PAGE_SIZE, parseBase } from "../core/base";
 import { updateBase, type BaseOp } from "../core/baseEdit";
+import { toDelimited } from "../core/export";
 import { parseInputValue, textChange, type PropertyEdit } from "../core/writer";
 import type { EditTarget, FromWebview, ToWebview, UiEdit, UiState } from "../protocol";
 import { applyPropertyEdits } from "./edits";
@@ -145,6 +146,22 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
           case "open":
             await vscode.window.showTextDocument(vscode.Uri.parse(msg.uri), { preview: true, viewColumn: vscode.ViewColumn.Beside });
             break;
+          case "export": {
+            const all = computeView(parseBase(document.getText()), this.index.all(), { ...ui, page: 0, pageSize: Number.MAX_SAFE_INTEGER, thisFile: await thisFile() });
+            const files = `${all.rows.length} ${all.rows.length === 1 ? "row" : "rows"}`;
+            if (msg.to === "clipboard") {
+              await vscode.env.clipboard.writeText(toDelimited(all.columns, all.rows, "\t"));
+              post({ type: "notice", message: `Copied ${files} to the clipboard` });
+              break;
+            }
+            const name = `${document.uri.path.split("/").pop()!.replace(/\.base$/, "")} - ${all.view.name}.csv`.replace(/[\\/:*?"<>|]/g, "_");
+            const target = await vscode.window.showSaveDialog({ defaultUri: vscode.Uri.joinPath(document.uri, "..", name), filters: { CSV: ["csv"] } });
+            if (!target) break;
+            // The BOM lets Excel read the file as UTF-8.
+            await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(`\uFEFF${toDelimited(all.columns, all.rows, ",")}`));
+            post({ type: "notice", message: `Exported ${files} to ${vscode.workspace.asRelativePath(target)}` });
+            break;
+          }
           case "edit": {
             const confirm = !msg.confirmed && vscode.workspace.getConfiguration("bases").get<boolean>("confirmBulkEdits", true);
             const outcome = await applyPropertyEdits(await resolveTarget(msg.target), msg.edits.map(toPropertyEdit), { confirm });

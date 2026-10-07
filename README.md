@@ -16,8 +16,11 @@ at once.
   the settings icon configures one (layout, name, duplicate, delete; the
   arrow goes back to the list), *Add view*
   adds a table. Arrow keys and Enter work in the menu, Escape closes it.
-- **Result limit:** click the result count next to the view name to show
-  at most that many files in the view.
+- **Results:** click the result count next to the view name. *Limit* shows
+  at most that many files, *Reset limit* shows all again. *Copy to
+  clipboard* copies the view's rows and columns (all pages, tab-separated:
+  they paste into a spreadsheet as cells); *Export CSV* saves them as a
+  `.csv` file.
 - **Layouts:** in the view settings, *Layout* shows a view as a **Table**,
   **Cards** (one card per file), a **List**, or a **Kanban** board. A board
   groups its cards by one property (*Group by*), one lane per value; drag a
