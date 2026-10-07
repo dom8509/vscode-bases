@@ -19,3 +19,11 @@ views:
         direction: DESC
   - type: table
     name: All projects
+  - type: kanban
+    name: Board
+    groupBy:
+      property: status
+    order: [file.name, title, priority, owner, due]
+  - type: cards
+    name: Cards
+    order: [file.name, title, status, priority, owner, due]

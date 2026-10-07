@@ -302,7 +302,7 @@ select {
   gap: 8px;
 }
 
-.panel .field span {
+.panel .field > span {
   width: 90px;
   color: var(--vscode-descriptionForeground);
 }
@@ -741,4 +741,206 @@ th .sort-arrow {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 6px;
+}
+
+/* --- layout picker in the view settings --- */
+
+.layouts {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 6px;
+  background: var(--vscode-input-background);
+}
+
+button.clickable-icon.layout.active {
+  color: var(--vscode-foreground);
+  background: var(--vscode-toolbar-activeBackground, var(--vscode-toolbar-hoverBackground));
+}
+
+/* --- shared by cards, list and kanban --- */
+
+a.title {
+  font-weight: 600;
+  color: var(--vscode-textLink-foreground);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+a.title:hover {
+  text-decoration: underline;
+}
+
+.select-box {
+  margin: 0;
+  flex: none;
+}
+
+.card .select-box,
+.list-item .select-box {
+  opacity: 0;
+}
+
+.card:hover .select-box,
+.card.selected .select-box,
+.list-item:hover .select-box,
+.list-item.selected .select-box {
+  opacity: 1;
+}
+
+/* --- cards --- */
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  align-items: start;
+  gap: 12px;
+  padding: 12px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 8px;
+  background: var(--vscode-editorWidget-background);
+}
+
+.card:hover {
+  border-color: var(--vscode-focusBorder);
+}
+
+.card.selected {
+  outline: 1px solid var(--vscode-focusBorder);
+  background: var(--vscode-list-inactiveSelectionBackground, var(--vscode-editorWidget-background));
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.card-field {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  font-size: 0.92em;
+}
+
+.card-label {
+  flex: none;
+  width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--vscode-descriptionForeground);
+}
+
+.card-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- list --- */
+
+ul.list {
+  list-style: none;
+  margin: 0;
+  padding: 6px 0;
+}
+
+.list-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  white-space: nowrap;
+}
+
+.list-item:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.list-item.selected {
+  background: var(--vscode-list-inactiveSelectionBackground);
+}
+
+.list-fields {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* --- kanban --- */
+
+.board {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  min-height: 100%;
+  box-sizing: border-box;
+}
+
+.lane {
+  flex: 0 0 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 100%;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--vscode-sideBar-background, var(--vscode-editorWidget-background));
+  border: 1px solid transparent;
+}
+
+.lane.drop {
+  border-color: var(--vscode-focusBorder);
+}
+
+.lane-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  font-weight: 600;
+}
+
+.lane-name.none {
+  font-style: italic;
+  color: var(--vscode-descriptionForeground);
+}
+
+.lane-count {
+  color: var(--vscode-descriptionForeground);
+  font-weight: normal;
+}
+
+.lane-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 24px;
+}
+
+.lane .card[draggable="true"] {
+  cursor: grab;
+}
+
+.lane .card.dragging {
+  opacity: 0.5;
 }

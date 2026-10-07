@@ -167,7 +167,13 @@ function uniqueName(base: string, taken: string[]): string {
 
 // --- views ------------------------------------------------------------------
 
-const VIEW_ICONS: Record<string, IconName> = { table: "table", cards: "cards", list: "list", map: "map" };
+const VIEW_ICONS: Record<string, IconName> = { table: "table", cards: "cards", list: "list", kanban: "kanban", map: "map" };
+const LAYOUTS = [
+  { type: "table", label: "Table" },
+  { type: "cards", label: "Cards" },
+  { type: "list", label: "List" },
+  { type: "kanban", label: "Kanban" },
+] as const;
 let viewMenuOpen = false;
 
 function closeViewMenu(): void {
@@ -237,8 +243,30 @@ function viewPanel(): HTMLElement {
   }, { type: "number", min: "1", placeholder: "no limit", class: "narrow" });
   const remove = iconButton("trash", "Delete view", () => ops({ op: "removeView", index: i }), "danger");
   remove.disabled = r.views.length <= 1;
+  const layouts = el("div", { class: "layouts", role: "radiogroup" }, ...LAYOUTS.map((l) => {
+    const b = iconButton(VIEW_ICONS[l.type]!, l.label, () => {
+      if (l.type === r.view.type) return;
+      const change: BaseOp[] = [{ op: "setView", index: i, key: "type", value: l.type }];
+      // A board needs something to group by: the first property that is not the file's.
+      if (l.type === "kanban" && !r.view.groupBy) {
+        const first = r.columns.find((c) => c.editable)?.id ?? r.propertyNames[0];
+        if (first) change.push({ op: "setView", index: i, key: "groupBy", value: { property: first } });
+      }
+      ops(...change);
+    }, l.type === r.view.type ? "layout active" : "layout");
+    b.setAttribute("role", "radio");
+    b.setAttribute("aria-checked", String(l.type === r.view.type));
+    return b;
+  }));
+  const groupBy = r.view.type === "kanban"
+    ? [el("label", { class: "field" }, el("span", {}, "Group by"),
+      select("view-group", [{ value: "", label: "—" }, ...propertyOptions(r.view.groupBy ? [r.view.groupBy.property] : [])], r.view.groupBy?.property ?? "", (v) =>
+        ops({ op: "setView", index: i, key: "groupBy", value: v ? { property: v, direction: r.view.groupBy?.direction ?? "ASC" } : undefined })))]
+    : [];
   return el("div", { class: "panel" },
     el("div", { class: "panel-title" }, "View settings"),
+    el("div", { class: "field" }, el("span", {}, "Layout"), layouts),
+    ...groupBy,
     el("label", { class: "field" }, el("span", {}, "Name"), name),
     el("label", { class: "field" }, el("span", {}, "Result limit"), limit),
     el("div", { class: "row" },
@@ -899,6 +927,124 @@ function table(): HTMLElement {
   return el("div", {}, ...lists, el("table", {}, el("thead", {}, head), body));
 }
 
+// --- cards, list and kanban ------------------------------------------------------
+
+/** What the view shows: the table, or the rows laid out as cards, a list or a board. */
+function content(): HTMLElement {
+  const r = result!;
+  if (r.rows.length === 0 || r.view.type === "table" || !LAYOUTS.some((l) => l.type === r.view.type)) return table();
+  if (r.view.type === "cards") return el("div", { class: "cards" }, ...r.rows.map((row) => card(row)));
+  if (r.view.type === "list") return el("ul", { class: "list" }, ...r.rows.map(listItem));
+  return kanban();
+}
+
+/** A row's title is its first column, or its file name. */
+function titleOf(row: Row): string {
+  const first = result!.columns[0];
+  return (first && display(row.cells[first.id])) || row.path.split("/").pop()!;
+}
+
+/** The columns after the first, with a value in this row. */
+function fieldsOf(row: Row, skip?: string): Column[] {
+  return result!.columns.slice(1).filter((c) => c.id !== skip && (c.type === "checkbox" || !isEmptyValue(row.cells[c.id])));
+}
+
+function selectBox(row: Row): HTMLInputElement {
+  const box = el("input", { type: "checkbox", class: "select-box", title: "Select" });
+  box.checked = isSelected(row.uri);
+  box.onclick = (e) => {
+    e.stopPropagation();
+    toggle(row.uri, result!.rows, e.shiftKey);
+    render();
+  };
+  return box;
+}
+
+function titleLink(row: Row): HTMLElement {
+  const t = el("a", { class: "title", href: "#", title: row.path }, titleOf(row));
+  t.onclick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    send({ type: "open", uri: row.uri });
+  };
+  return t;
+}
+
+function card(row: Row, skip?: string): HTMLElement {
+  return el("div", { class: isSelected(row.uri) ? "card selected" : "card", title: row.readOnly },
+    el("div", { class: "card-head" }, titleLink(row), selectBox(row)),
+    ...fieldsOf(row, skip).map((c) => el("div", { class: "card-field" }, el("span", { class: "card-label" }, c.label), el("span", { class: "card-value" }, ...cellContent(c, row)))),
+  );
+}
+
+function listItem(row: Row): HTMLElement {
+  const fields = fieldsOf(row).flatMap((c, i) => [...(i > 0 ? [el("span", { class: "sep" }, "·")] : []), el("span", { class: "list-value", title: c.label }, ...cellContent(c, row))]);
+  return el("li", { class: isSelected(row.uri) ? "list-item selected" : "list-item" }, selectBox(row), titleLink(row), el("span", { class: "list-fields" }, ...fields));
+}
+
+/** The lane a value belongs in; "" is the lane of files without one. */
+function laneOf(v: unknown): string {
+  return isEmptyValue(v) ? "" : display(v);
+}
+
+/** The value a card takes when it is dropped in a lane. */
+function laneValue(lane: string, g: Column): unknown {
+  if (lane === "") return null;
+  if (g.type === "number") return Number(lane);
+  if (g.type === "checkbox") return lane === "true";
+  if (g.type === "list") return [lane];
+  return lane;
+}
+
+function kanban(): HTMLElement {
+  const r = result!;
+  const g = r.group;
+  if (!g) return el("p", { class: "empty" }, "Choose a property to group by in the view settings (the icon next to the view name).");
+  const names = new Set([...(g.suggestions ?? []), ...r.rows.map((row) => laneOf(row.cells[g.id]))]);
+  names.delete("");
+  const dir = r.view.groupBy?.direction === "DESC" ? -1 : 1;
+  const lanes = [...names].sort((a, b) => dir * a.localeCompare(b, undefined, { numeric: true }));
+  if (r.rows.some((row) => laneOf(row.cells[g.id]) === "")) lanes.push("");
+  const movable = g.editable;
+
+  return el("div", { class: "board" }, ...lanes.map((lane) => {
+    const rows = r.rows.filter((row) => laneOf(row.cells[g.id]) === lane);
+    const body = el("div", { class: "lane-body" }, ...rows.map((row) => {
+      const c = card(row, g.id);
+      if (movable && !row.readOnly) {
+        c.draggable = true;
+        c.ondragstart = (e) => {
+          e.dataTransfer?.setData("text/plain", row.uri);
+          c.classList.add("dragging");
+        };
+        c.ondragend = () => c.classList.remove("dragging");
+      }
+      return c;
+    }));
+    const col = el("div", { class: "lane" },
+      el("div", { class: "lane-head" }, el("span", { class: lane ? "lane-name" : "lane-name none" }, lane || "No value"), el("span", { class: "lane-count" }, String(rows.length))),
+      body);
+    if (movable) {
+      col.ondragover = (e) => {
+        e.preventDefault();
+        col.classList.add("drop");
+      };
+      col.ondragleave = (e) => {
+        if (!col.contains(e.relatedTarget as Node)) col.classList.remove("drop");
+      };
+      col.ondrop = (e) => {
+        e.preventDefault();
+        col.classList.remove("drop");
+        const row = r.rows.find((x) => x.uri === e.dataTransfer?.getData("text/plain"));
+        if (!row || laneOf(row.cells[g.id]) === lane) return;
+        commitValue(row, g, laneValue(lane, g));
+        render();
+      };
+    }
+    return col;
+  }));
+}
+
 function pager(): HTMLElement {
   const r = result!;
   const from = r.matchCount === 0 ? 0 : r.page * r.pageSize + 1;
@@ -945,7 +1091,7 @@ function render(): void {
   }
   if (result) {
     if (selectionCount() > 0) parts.push(bulkBar());
-    parts.push(el("div", { class: "table-host" }, table()));
+    parts.push(el("div", { class: "table-host" }, content()));
     if (result.pageCount > 1 || result.matchCount > 25) parts.push(pager());
   }
   app.replaceChildren(...parts);

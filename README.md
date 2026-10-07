@@ -15,6 +15,11 @@ at once.
 - **Views:** the view name at the top left opens the view menu: pick a view,
   the settings icon configures one (name, result limit, duplicate, delete), *Add view*
   adds a table. Arrow keys and Enter work in the menu, Escape closes it.
+- **Layouts:** in the view settings, *Layout* shows a view as a **Table**,
+  **Cards** (one card per file), a **List**, or a **Kanban** board. A board
+  groups its cards by one property (*Group by*), one lane per value; drag a
+  card to another lane to change that value in its file. Cards and list
+  items have a checkbox for selecting, as the rows of the table do.
 - **Properties:** choose the columns, drag them into order, and add formulas
   (a name and an expression; the formula becomes a column).
 - **Filter:** *This view* filters one view, *All views* the whole base. A
