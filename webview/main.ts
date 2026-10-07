@@ -3,6 +3,7 @@
 // columns, sort, formulas) the way Obsidian Bases lets you edit it.
 
 import type { Column, PropertyInfo, Row } from "../src/core/base";
+import { DEFAULT_CARD_SIZE, type RowHeight } from "../src/core/display";
 import {
   CONJUNCTIONS,
   conditionExpr,
@@ -13,6 +14,9 @@ import {
   type FilterNode,
   type Operator,
 } from "../src/core/filterModel";
+import MarkdownIt from "markdown-it";
+import { outline, type OutlineItem } from "../src/core/chapters";
+import { entryParts } from "../src/core/document";
 import { icon, type IconName } from "./icons";
 import type { BaseOp, EditTarget, FromWebview, IndexProgress, SortSpec, ToWebview, UiEdit, UiState, ViewResult } from "../src/protocol";
 
@@ -262,12 +266,21 @@ function uniqueName(base: string, taken: string[]): string {
 
 // --- views ------------------------------------------------------------------
 
-const VIEW_ICONS: Record<string, IconName> = { table: "table", cards: "cards", list: "list", kanban: "kanban", map: "map" };
+const VIEW_ICONS: Record<string, IconName> = { table: "table", cards: "cards", list: "list", kanban: "kanban", document: "document", map: "map" };
+/** How a group value becomes levels of headings (groupBy.separator). */
+const LEVEL_RULES = [
+  { value: ".", label: "Chapter numbers (3.2.1 Title)" },
+  { value: "/", label: "Path (a/b/c)" },
+  { value: ">", label: "Arrows (a > b > c)" },
+  { value: "", label: "None (one level)" },
+];
+
 const LAYOUTS = [
   { type: "table", label: "Table" },
   { type: "cards", label: "Cards" },
   { type: "list", label: "List" },
   { type: "kanban", label: "Kanban" },
+  { type: "document", label: "Document" },
 ] as const;
 let viewMenuOpen = false;
 /** The view whose settings are open; not always the one shown. */
@@ -415,11 +428,20 @@ function viewPanel(): HTMLElement {
         }, { disabled: r.views.length <= 1, danger: true, key: "view-delete" }))]
       : []));
 
-  const groupBy = v.type === "kanban"
+  // Cards are not grouped; the other layouts are, a board by lanes and the rest by headings.
+  const groupBy = v.type !== "cards"
     ? [el("label", { class: "field" }, el("span", {}, "Group by"),
       select(`view-group-${i}`, [{ value: "", label: "—" }, ...propertyOptions(v.groupBy ? [v.groupBy.property] : [])], v.groupBy?.property ?? "", (p) =>
-        ops({ op: "setView", index: i, key: "groupBy", value: p ? { property: p, direction: v.groupBy?.direction ?? "ASC" } : undefined })))]
+        ops({ op: "setView", index: i, key: "groupBy", value: p ? { ...v.groupBy, property: p, direction: v.groupBy?.direction ?? "ASC" } : undefined })))]
     : [];
+  // How a group value splits into levels of headings; a board has lanes, not levels.
+  if (v.groupBy && v.type !== "cards" && v.type !== "kanban") {
+    const sep = v.groupBy.separator ?? ".";
+    const known = LEVEL_RULES.some((l) => l.value === sep);
+    groupBy.push(el("label", { class: "field", title: "Which part of a value starts a deeper heading" }, el("span", {}, "Levels"),
+      select(`view-levels-${i}`, [...LEVEL_RULES, ...(known ? [] : [{ value: sep, label: `Split at “${sep}”` }])], sep, (s) =>
+        ops({ op: "setView", index: i, key: "groupBy", value: { ...v.groupBy!, separator: s === "." ? undefined : s } }))));
+  }
   return el("div", { class: "panel view-panel" },
     el("div", { class: "panel-head" },
       iconButton("arrowLeft", undefined, () => {
@@ -435,7 +457,52 @@ function viewPanel(): HTMLElement {
     el("label", { class: "field" }, el("span", {}, "Name"), name),
     el("div", { class: "field" }, el("span", {}, "Layout"), layout),
     ...groupBy,
+    ...displayFields(v, i),
   );
+}
+
+/** A slider that writes its value when let go, with the value next to it. */
+function slider(key: string, value: number, min: number, max: number, step: number, show: (n: number) => string, onCommit: (n: number) => void): HTMLElement {
+  const input = el("input", { type: "range", min: String(min), max: String(max), step: String(step), "data-key": key, class: "slider" });
+  input.value = String(value);
+  const label = el("span", { class: "slider-value" }, show(value));
+  input.oninput = () => (label.textContent = show(Number(input.value)));
+  input.onchange = () => onCommit(Number(input.value));
+  return el("span", { class: "slider-row" }, input, label);
+}
+
+const ROW_HEIGHTS: { value: RowHeight; label: string }[] = [
+  { value: "short", label: "Short" },
+  { value: "medium", label: "Medium" },
+  { value: "tall", label: "Tall" },
+  { value: "extra-tall", label: "Extra tall" },
+];
+
+/** The options of a layout, as Obsidian has them: row height for a table; card size and cover image for cards and boards. */
+function displayFields(v: ViewResult["views"][number], i: number): HTMLElement[] {
+  const d = v.display;
+  const set = (op: BaseOp) => ops(op);
+  const field = (label: string, control: HTMLElement, title?: string) => el("label", { class: "field", title }, el("span", {}, label), control);
+  const out: HTMLElement[] = [];
+  if (v.type === "table") {
+    out.push(field("Row height", select(`view-row-height-${i}`, ROW_HEIGHTS, d.rowHeight, (h) =>
+      set({ op: "setView", index: i, key: "rowHeight", value: h === "short" ? undefined : h }))));
+  }
+  if (v.type === "cards") {
+    out.push(field("Card size", slider(`view-card-size-${i}`, d.cardSize, 100, 500, 10, (n) => `${n}px`, (n) =>
+      set({ op: "setView", index: i, key: "cardSize", value: n === DEFAULT_CARD_SIZE ? undefined : n }))));
+  }
+  if (v.type === "cards" || v.type === "kanban") {
+    out.push(field("Image property", select(`view-image-${i}`, [{ value: "", label: "—" }, ...propertyOptions(d.image ? [d.image] : [])], d.image ?? "", (p) =>
+      set({ op: "setView", index: i, key: "image", value: p || undefined })), "A property with an attachment link ([[cover.jpg]]), a web address, or a color (#3366ff)"));
+    if (d.image) {
+      out.push(field("Image fit", select(`view-image-fit-${i}`, [{ value: "cover", label: "Cover" }, { value: "contain", label: "Contain" }], d.imageFit, (f) =>
+        set({ op: "setView", index: i, key: "imageFit", value: f === "contain" ? "contain" : undefined }))));
+      out.push(field("Aspect ratio", slider(`view-image-ratio-${i}`, d.imageAspectRatio, 0.25, 2.5, 0.05, (n) => n.toFixed(2), (n) =>
+        set({ op: "setView", index: i, key: "imageAspectRatio", value: n === 1 ? undefined : n })), "Image height ÷ width; 1 is square"));
+    }
+  }
+  return out;
 }
 
 /** The window behind the result count: how many results the view shows at most. */
@@ -448,7 +515,7 @@ function resultsPanel(): HTMLElement {
   }, { type: "number", min: "1", placeholder: "no limit", class: "narrow" });
   const reset = iconButton("reset", "Reset limit", () => setLimit(undefined), "", "Show every matching file");
   reset.disabled = r.view.limit === undefined;
-  const exportTo = (to: "clipboard" | "csv") => {
+  const exportTo = (to: "clipboard" | "csv" | "xlsx" | "markdown" | "html") => {
     closePanel();
     send({ type: "export", to });
   };
@@ -460,7 +527,11 @@ function resultsPanel(): HTMLElement {
     el("div", { class: "actions" },
       reset,
       iconButton("clipboard", "Copy to clipboard", () => exportTo("clipboard"), "", "Copy the rows and columns of this view (all pages), tab-separated"),
-      iconButton("download", "Export CSV", () => exportTo("csv"), "", "Save the rows and columns of this view (all pages) as a CSV file")),
+      iconButton("fileCsv", "Export CSV", () => exportTo("csv"), "", "Save the rows and columns of this view (all pages) as a CSV file"),
+      // Excel only for a table: the sheet is the table.
+      ...(r.view.type === "table" ? [iconButton("fileXlsx", "Export Excel", () => exportTo("xlsx"), "", "Save this table (all pages) as an Excel workbook, with typed cells and a filter on every column")] : []),
+      iconButton("fileMd", "Export Markdown", () => exportTo("markdown"), "", "Save the view as one document: chapters, each file's properties and text"),
+      iconButton("fileHtml", "Export HTML (for PDF / Word)", () => exportTo("html"), "", "Save the view as a web page: print it to PDF, or open it in Word")),
   );
 }
 
@@ -859,6 +930,11 @@ function editsSelection(row: Row): boolean {
   return isSelected(row.uri) && selectionCount() > 1;
 }
 
+/** A table cell's content, in a box that a taller row height lets wrap onto more lines. */
+function cellBox(c: Column, row: Row): HTMLElement {
+  return el("div", { class: "cell-box" }, ...cellContent(c, row));
+}
+
 /**
  * Shows the new value at once, then has the host write it. An empty value
  * removes the property. In a selected row the change goes to every selected
@@ -961,7 +1037,7 @@ function startEdit(rowIndex: number, colIndex: number): void {
   if (!row || !c || !td || td.querySelector(".cell-input")) return;
   if (c.type === "checkbox") {
     commitValue(row, c, row.cells[c.id] !== true);
-    td.replaceChildren(...cellContent(c, row));
+    td.replaceChildren(cellBox(c, row));
     return;
   }
 
@@ -1053,7 +1129,7 @@ function startEdit(rowIndex: number, colIndex: number): void {
       }
     }
     td.classList.remove("editing");
-    td.replaceChildren(...cellContent(c, row));
+    td.replaceChildren(cellBox(c, row));
     const target = move && nextEditable(rowIndex, colIndex, move);
     if (target) startEdit(...target);
     else if (renderPending) render();
@@ -1153,7 +1229,14 @@ function table(): HTMLElement {
   const lists = r.columns.map((c, ci) => el("datalist", { id: `sugg-${ci}` }, ...(c.suggestions ?? []).map((v) => el("option", { value: v }))));
 
   const body = el("tbody");
-  rows.forEach((row, ri) => {
+  const at = new Map(rows.map((row, ri) => [row, ri]));
+  for (const item of grouped(rows)) {
+    if (item.kind === "heading") {
+      body.append(el("tr", { class: `group-row level-${item.level}` }, el("td", { colspan: String(r.columns.length + 1) }, headingLabel(item))));
+      continue;
+    }
+    const row = item.row;
+    const ri = at.get(row)!;
     const box = el("input", { type: "checkbox" });
     box.checked = isSelected(row.uri);
     box.onclick = (e) => {
@@ -1162,7 +1245,7 @@ function table(): HTMLElement {
     };
     const tr = el("tr", { class: isSelected(row.uri) ? "selected" : "", title: row.readOnly }, el("td", { class: "check" }, box));
     r.columns.forEach((c, ci) => {
-      const td = el("td", { "data-r": String(ri), "data-c": String(ci) }, ...cellContent(c, row));
+      const td = el("td", { "data-r": String(ri), "data-c": String(ci) }, cellBox(c, row));
       if (c.id === "file.name" || c.id === "file.path" || c.id === "file.basename") {
         td.className = "file";
         td.onclick = () => send({ type: "open", uri: row.uri });
@@ -1175,8 +1258,8 @@ function table(): HTMLElement {
       tr.append(td);
     });
     body.append(tr);
-  });
-  return el("div", {}, ...lists, el("table", {}, el("thead", {}, head), body));
+  }
+  return el("div", {}, ...lists, el("table", { class: `rh-${r.view.display.rowHeight}` }, el("thead", {}, head), body));
 }
 
 // --- cards, list and kanban ------------------------------------------------------
@@ -1185,9 +1268,72 @@ function table(): HTMLElement {
 function content(): HTMLElement {
   const r = result!;
   if (r.rows.length === 0 || r.view.type === "table" || !LAYOUTS.some((l) => l.type === r.view.type)) return table();
-  if (r.view.type === "cards") return el("div", { class: "cards" }, ...r.rows.map((row) => card(row)));
-  if (r.view.type === "list") return el("ul", { class: "list" }, ...r.rows.map(listItem));
+  if (r.view.type === "cards") {
+    const grid = el("div", { class: "cards" }, ...r.rows.map((row) => card(row)));
+    grid.style.gridTemplateColumns = `repeat(auto-fill, minmax(${r.view.display.cardSize}px, 1fr))`;
+    return grid;
+  }
+  if (r.view.type === "list") {
+    return el("ul", { class: "list" }, ...grouped(r.rows).map((item) =>
+      item.kind === "heading" ? el("li", { class: `list-heading level-${item.level}` }, headingLabel(item)) : listItem(item.row)));
+  }
+  if (r.view.type === "document") return documentView();
   return kanban();
+}
+
+/** The rows with chapter headings, when the view groups; else just the rows. */
+function grouped(rows: Row[]): OutlineItem[] {
+  const g = result!.group;
+  return g ? outline(rows, g.id, g.suggestions, result!.view.groupBy?.separator) : rows.map((row) => ({ kind: "row", row }));
+}
+
+function headingLabel(item: Extract<OutlineItem, { kind: "heading" }>): HTMLElement {
+  return el("span", { class: "heading-label" }, ...(item.number ? [el("span", { class: "heading-number" }, item.number)] : []), item.title);
+}
+
+// --- document -------------------------------------------------------------------
+
+// The text of a note is Markdown; raw HTML in it stays text.
+const markdown = new MarkdownIt({ html: false, linkify: true });
+
+/** The view as one document: chapter headings, then each file with its title, properties and text. */
+function documentView(): HTMLElement {
+  const r = result!;
+  const g = r.group;
+  const page = el("div", { class: "document" });
+  let depth = 0;
+  for (const item of grouped(r.rows)) {
+    if (item.kind === "heading") {
+      depth = Math.min(item.level, 4);
+      page.append(el(`h${depth}` as "h1", { class: "doc-heading" }, headingLabel(item)));
+      continue;
+    }
+    const row = item.row;
+    const { title, fields } = entryParts(r.columns, row, g?.id);
+    const head = el(`h${Math.min(depth + 1, 5)}` as "h2", { class: "doc-entry-title" }, titleLinkText(row, title), selectBox(row));
+    const text = el("div", { class: "doc-body" });
+    // Markdown-it escapes HTML (html: false), so the result is safe to insert.
+    text.innerHTML = markdown.render(row.body ?? "");
+    page.append(el("section", { class: isSelected(row.uri) ? "doc-entry selected" : "doc-entry", title: row.readOnly },
+      head,
+      ...(fields.length > 0 ? [el("div", { class: "doc-fields" }, ...fields.map((c) => el("span", { class: "doc-field" }, el("span", { class: "card-label" }, c.label), ...cellContent(c, row))))] : []),
+      text));
+  }
+  // Links in a note's text: web links open in the browser; nothing navigates the webview.
+  page.onclick = (e) => {
+    const a = (e.target as HTMLElement).closest("a");
+    if (!a || a.classList.contains("title")) return;
+    e.preventDefault();
+    const href = a.getAttribute("href") ?? "";
+    if (/^https?:/i.test(href)) send({ type: "open", uri: href });
+  };
+  return page;
+}
+
+function titleLinkText(row: Row, text: string): HTMLElement {
+  const t = titleLink(row);
+  t.textContent = text;
+  return t;
 }
 
 /** A row's title is its first column, or its file name. */
@@ -1222,8 +1368,21 @@ function titleLink(row: Row): HTMLElement {
   return t;
 }
 
+/** The cover at the top of a card: an image, or a block of color. */
+function cover(row: Row): HTMLElement[] {
+  const d = result!.view.display;
+  if (!d.image) return [];
+  const box = el("div", { class: `card-cover fit-${d.imageFit}` });
+  box.style.aspectRatio = `1 / ${d.imageAspectRatio}`;
+  if (row.cover?.color) box.style.background = row.cover.color;
+  else if (row.cover?.src) box.append(el("img", { src: row.cover.src, alt: "", loading: "lazy" }));
+  else box.classList.add("empty");
+  return [box];
+}
+
 function card(row: Row, skip?: string): HTMLElement {
   return el("div", { class: isSelected(row.uri) ? "card selected" : "card", title: row.readOnly },
+    ...cover(row),
     el("div", { class: "card-head" }, titleLink(row), selectBox(row)),
     ...fieldsOf(row, skip).map((c) => el("div", { class: "card-field" }, el("span", { class: "card-label" }, c.label), el("span", { class: "card-value" }, ...cellContent(c, row)))),
   );

@@ -15,6 +15,9 @@ export type BaseOp =
   /** The layout: table, cards, list or kanban. */
   | { op: "setView"; index: number; key: "type"; value: string }
   | { op: "setView"; index: number; key: "groupBy"; value: GroupBy | undefined }
+  /** Display options; undefined removes the key, which means Obsidian's default. */
+  | { op: "setView"; index: number; key: "rowHeight" | "image" | "imageFit"; value: string | undefined }
+  | { op: "setView"; index: number; key: "cardSize" | "imageAspectRatio"; value: number | undefined }
   | { op: "setView"; index: number; key: "filters"; value: Filter | undefined }
   | { op: "setView"; index: number; key: "order"; value: string[] }
   | { op: "setView"; index: number; key: "sort"; value: SortSpec[] }
@@ -52,7 +55,7 @@ function view(doc: Document, index: number): YAMLMap {
 
 // The order Obsidian writes keys in; a new key goes to its place in it.
 const ROOT_KEYS = ["filters", "formulas", "properties", "summaries", "views"];
-const VIEW_KEYS = ["type", "name", "filters", "groupBy", "order", "sort", "limit"];
+const VIEW_KEYS = ["type", "name", "filters", "groupBy", "order", "sort", "limit", "rowHeight", "image", "imageAspectRatio", "imageFit", "cardSize"];
 
 /** Sets a key, keeping a flow list a flow list; an empty value removes the key. */
 function setKey(doc: Document, map: YAMLMap, key: string, value: unknown, keyOrder: string[]): void {

@@ -20,9 +20,29 @@ at once.
   at most that many files, *Reset limit* shows all again. *Copy to
   clipboard* copies the view's rows and columns (all pages, tab-separated:
   they paste into a spreadsheet as cells); *Export CSV* saves them as a
-  `.csv` file.
+  `.csv` file. In a table, *Export Excel* saves an `.xlsx` workbook: numbers
+  stay numbers, dates are dates, the header is bold and frozen, and every
+  column has a filter. A grouped view keeps its group (e.g. the chapter) as
+  the first column in Excel, CSV and the clipboard. *Export Markdown* and *Export HTML* save the view as one
+  document (chapters, titles, properties, text); open the HTML in a browser
+  and print it to PDF, or open it in Word.
 - **Layouts:** in the view settings, *Layout* shows a view as a **Table**,
-  **Cards** (one card per file), a **List**, or a **Kanban** board. A board
+  **Cards** (one card per file), a **List**, a **Kanban** board, or a
+  **Document**: every file with its title, its properties in one line and
+  the text of the note below them, read like one document. Click a title to
+  edit the note.
+- **Group by and levels:** *Group by* in the view settings groups a table,
+  list or document under a heading per value. *Levels* says how a value
+  splits into nested headings (`groupBy.separator` in the file):
+  - *Chapter numbers* (the default): `3.2` or `3.2 Anmeldung` is chapter 3.2
+    under chapter 3; they sort as 3 < 3.2 < 3.10 < 4, and a chapter's title
+    is taken from any value that names it (`3 Funktionen`).
+  - *Path* (`/`) or *Arrows* (`>`): `Funktionen/Anmeldung` is "Anmeldung"
+    under "Funktionen" — group by `file.folder` for a folder tree, or by
+    nested tags. Any other separator can be written in the file.
+  - *None*: one heading per value.
+
+  A board
   groups its cards by one property (*Group by*), one lane per value; drag a
   card to another lane to change that value in its file. Drag a lane by its
   header to move it; the order is kept in the view (`groupBy.order`). Cards and list
@@ -65,7 +85,12 @@ at once.
   workspace folder; empty, the default, is the workspace folder itself), or
   into the folder the view filters on with *is in folder*. Values the
   view's filters require (*is*, *has tag*, in "all of" groups) are filled
-  in, so the note shows in the view.
+  in, so the note shows in the view. When a column holds IDs like
+  `REQ-041` (a column named `id` is looked at first), the new note gets the
+  next one, `REQ-042`, and is named after it.
+- **Example:** `sample/lastenheft.base` is a requirements specification:
+  one note per requirement, as a document, a table by chapter, and a board
+  by status.
 - **Edit the YAML:** the source icon at the top right of the editor (as for
   Markdown) or Cmd/Ctrl+Shift+V. The same
   icon and keys in the YAML go back to the table.
@@ -149,7 +174,25 @@ naming what is unsupported, rather than silently matching nothing.
 - **Dates:** `now() - "1 week"`, `date(due) < today()`
 
 Not yet: links (`file.hasLink`, `link()`), inline `#tags` in the note body,
-`groupBy`, summaries, card and list views.
+summaries, the map view (it shows as a table), and Obsidian's `groupOrder`.
+
+### View options
+
+As Obsidian writes them in a view, and set in the view settings:
+
+| Key | Layout | Values |
+|---|---|---|
+| `rowHeight` | table | `short` (default), `medium`, `tall`, `extra-tall` |
+| `cardSize` | cards | card width in pixels, default `200` |
+| `image` | cards, kanban | the property with a card's cover: an attachment link (`"[[cover.jpg]]"`), a web address, or a color (`#3366ff`) |
+| `imageFit` | cards, kanban | `contain`; empty or missing is *cover* |
+| `imageAspectRatio` | cards, kanban | image height ÷ width, default `1` (square) |
+
+An attachment is looked for next to the note, from the workspace root, and
+then anywhere in the workspace by its name.
+
+Additions of this extension: the `document` layout, and `groupBy.separator`
+and `groupBy.order` (lane order on a board).
 
 ## Large workspaces
 

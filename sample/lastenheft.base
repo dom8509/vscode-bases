@@ -1,0 +1,21 @@
+# A requirements specification: one note per requirement, grouped by chapter.
+filters:
+  and:
+    - file.inFolder("lastenheft")
+views:
+  - type: document
+    name: Dokument
+    groupBy:
+      property: kapitel
+    order: [id, titel, prio, status, quelle]
+  - type: table
+    name: Tabelle
+    groupBy:
+      property: kapitel
+    order: [id, titel, prio, status, quelle]
+  - type: kanban
+    name: Status
+    groupBy:
+      property: status
+      order: [offen, in Arbeit, abgestimmt]
+    order: [id, titel, prio]
