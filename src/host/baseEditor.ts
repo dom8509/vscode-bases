@@ -6,7 +6,7 @@ import * as vscode from "vscode";
 import { computeView, DEFAULT_PAGE_SIZE, parseBase } from "../core/base";
 import { updateBase, type BaseOp } from "../core/baseEdit";
 import { parseInputValue, textChange, type PropertyEdit } from "../core/writer";
-import type { FromWebview, ToWebview, UiEdit, UiState } from "../protocol";
+import type { EditTarget, FromWebview, ToWebview, UiEdit, UiState } from "../protocol";
 import { applyPropertyEdits } from "./edits";
 import { fileInfo, type WorkspaceIndex } from "./indexer";
 
@@ -29,6 +29,7 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly index: WorkspaceIndex,
+    private readonly log: vscode.LogOutputChannel,
   ) {}
 
   async resolveCustomTextEditor(document: vscode.TextDocument, panel: vscode.WebviewPanel): Promise<void> {
@@ -56,14 +57,25 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
         return;
       }
       await this.index.ensureReady();
-      const stat = document.uri.scheme === "file" ? await vscode.workspace.fs.stat(document.uri).then(undefined, () => undefined) : undefined;
-      const result = computeView(base, this.index.all(), {
-        ...ui,
-        thisFile: stat ? fileInfo(document.uri, stat) : undefined,
-      });
+      const started = performance.now();
+      const result = computeView(base, this.index.all(), { ...ui, thisFile: await thisFile() });
       ui.viewIndex = result.viewIndex;
       ui.page = result.page;
-      post({ type: "render", result });
+      this.log.debug(`${vscode.workspace.asRelativePath(document.uri)} › ${result.view.name}: ${result.matchCount} of ${result.total} files, page ${result.page + 1}, in ${Math.round(performance.now() - started)} ms`);
+      post({ type: "render", result, indexing: this.index.progress && { ...this.index.progress } });
+    };
+
+    const thisFile = async () => {
+      const stat = document.uri.scheme === "file" ? await vscode.workspace.fs.stat(document.uri).then(undefined, () => undefined) : undefined;
+      return stat ? fileInfo(document.uri, stat) : undefined;
+    };
+
+    /** The files an edit applies to; "all matching" is resolved against the view as it is now. */
+    const resolveTarget = async (target: EditTarget): Promise<vscode.Uri[]> => {
+      if ("uris" in target) return target.uris.map((u) => vscode.Uri.parse(u));
+      const result = computeView(parseBase(document.getText()), this.index.all(), { ...ui, thisFile: await thisFile(), collectUris: true });
+      const except = new Set(target.except);
+      return (result.allUris ?? []).filter((u) => !except.has(u)).map((u) => vscode.Uri.parse(u));
     };
 
     let timer: NodeJS.Timeout | undefined;
@@ -120,7 +132,7 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
             await vscode.commands.executeCommand("vscode.openWith", document.uri, "default");
             break;
           case "edit": {
-            const outcome = await applyPropertyEdits(msg.uris.map((u) => vscode.Uri.parse(u)), msg.edits.map(toPropertyEdit));
+            const outcome = await applyPropertyEdits(await resolveTarget(msg.target), msg.edits.map(toPropertyEdit));
             if (outcome.failures.length > 0) {
               void vscode.window.showWarningMessage(`${outcome.failures.length} file(s) not changed: ${outcome.failures.slice(0, 3).join("; ")}`);
             }

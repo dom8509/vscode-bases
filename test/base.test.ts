@@ -85,7 +85,9 @@ describe("views", () => {
     const many = Array.from({ length: 120 }, (_, i) => record(`n/${String(i).padStart(3, "0")}.md`, `---\ni: ${i}\n---\n`));
     const first = computeView(parseBase(NEW_BASE), many, { viewIndex: 0 });
     expect([first.page, first.pageSize, first.pageCount, first.rows.length]).toEqual([0, 50, 3, 50]);
-    expect(first.allUris).toHaveLength(120);
+    expect(first.matchCount).toBe(120);
+    expect(first.allUris).toBeUndefined();
+    expect(computeView(parseBase(NEW_BASE), many, { viewIndex: 0, collectUris: true }).allUris).toHaveLength(120);
     const last = computeView(parseBase(NEW_BASE), many, { viewIndex: 0, page: 2 });
     expect(last.rows.map((r) => r.path)).toEqual(Array.from({ length: 20 }, (_, i) => `n/${100 + i}.md`));
     const beyond = computeView(parseBase(NEW_BASE), many, { viewIndex: 0, page: 9, pageSize: 100 });
@@ -93,7 +95,8 @@ describe("views", () => {
   });
 
   it("searches the cells of the view across all pages", () => {
-    const view = computeView(parseBase(BASE), records, { viewIndex: 1, query: "BETA", pageSize: 1 });
+    const view = computeView(parseBase(BASE), records, { viewIndex: 1, query: "BETA", pageSize: 1, collectUris: true });
+    expect(view.matchCount).toBe(1);
     expect(view.allUris).toEqual(["file:///ws/projects/beta.md"]);
     expect(view.rows.map((r) => r.path)).toEqual(["projects/beta.md"]);
     expect(view.total).toBe(3);

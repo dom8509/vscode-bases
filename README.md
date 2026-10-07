@@ -105,6 +105,28 @@ naming what is unsupported, rather than silently matching nothing.
 Not yet: links (`file.hasLink`, `link()`), inline `#tags` in the note body,
 `groupBy`, summaries, card and list views.
 
+## Large workspaces
+
+The extension starts indexing as soon as a workspace with a `.base` file
+opens. What parsing produced is cached per workspace: on the next start a
+base shows the cached rows at once, and a scan in the background reads only
+the files whose modification time or size changed. While a workspace is
+indexed for the first time, the table fills in as files are read.
+
+The *Bases* output channel logs how long indexing took and how many files
+came from the cache; at log level *Debug* (*Developer: Set Log Level…*) it
+also logs the time of every view.
+
+Measured with 20,000 notes (`npm run test:perf`):
+
+| | |
+|---|---|
+| first start, no cache | 2.4 s until the index is complete |
+| later starts | rows after 56 ms; the check against the disk takes 0.8 s in the background |
+| computing a view | 18 ms |
+
+To index less, narrow `bases.include` or add folders to `bases.exclude`.
+
 ## Settings
 
 | Setting | Default | |
@@ -120,13 +142,14 @@ Not yet: links (`file.hasLink`, `link()`), inline `#tags` in the note body,
 npm install
 npm run check              # typecheck, unit tests, build
 npm run test:integration   # runs the suite in a downloaded VS Code
+npm run test:perf          # indexes 20,000 generated notes, with and without the cache
 ```
 
 Press F5 to start an Extension Development Host on the `sample/` workspace.
 
 | Path | |
 |---|---|
-| `src/core/` | everything that does not need VS Code: expression language, record parsing, the writer, view computation, edits to the base, the filter editor's model — unit-tested in `test/` |
+| `src/core/` | everything that does not need VS Code: expression language, record parsing, the writer, view computation, edits to the base, the filter editor's model, the index cache format — unit-tested in `test/` |
 | `src/host/` | the workspace index, the custom editor and the edit path |
 | `webview/` | the table UI; it holds no data and talks to the host through `src/protocol.ts` |
 | `test/integration/` | runs inside VS Code against a scratch copy of `sample/` |

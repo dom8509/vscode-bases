@@ -3,11 +3,18 @@ import { NEW_BASE } from "./core/baseEdit";
 import { BaseEditorProvider, VIEW_TYPE } from "./host/baseEditor";
 import { WorkspaceIndex } from "./host/indexer";
 
+let index: WorkspaceIndex | undefined;
+
 export function activate(context: vscode.ExtensionContext): void {
-  const index = new WorkspaceIndex();
+  const log = vscode.window.createOutputChannel("Bases", { log: true });
+  index = new WorkspaceIndex(context.storageUri, log);
+  // Activated because the workspace has a .base file: index now, so the first
+  // base that opens finds the work done.
+  void index.ensureReady();
   context.subscriptions.push(
+    log,
     index,
-    vscode.window.registerCustomEditorProvider(VIEW_TYPE, new BaseEditorProvider(context, index), {
+    vscode.window.registerCustomEditorProvider(VIEW_TYPE, new BaseEditorProvider(context, index, log), {
       webviewOptions: { retainContextWhenHidden: true },
     }),
     vscode.commands.registerCommand("bases.newBase", async (target?: vscode.Uri) => newBase(target)),
@@ -44,4 +51,7 @@ async function newBase(target?: vscode.Uri): Promise<void> {
   await vscode.commands.executeCommand("vscode.openWith", uri, VIEW_TYPE);
 }
 
-export function deactivate(): void {}
+/** Writes the index cache, so the next start can skip unchanged files. */
+export async function deactivate(): Promise<void> {
+  await index?.saveCache();
+}

@@ -13,7 +13,7 @@ import {
   type FilterNode,
   type Operator,
 } from "../src/core/filterModel";
-import type { BaseOp, FromWebview, SortSpec, ToWebview, UiEdit, UiState, ViewResult } from "../src/protocol";
+import type { BaseOp, EditTarget, FromWebview, IndexProgress, SortSpec, ToWebview, UiEdit, UiState, ViewResult } from "../src/protocol";
 
 declare function acquireVsCodeApi(): { postMessage(msg: FromWebview): void };
 const vscode = acquireVsCodeApi();
@@ -32,8 +32,45 @@ let filterScope: "view" | "base" = "view";
 let search = "";
 let searchTimer: number | undefined;
 let propertySearch = "";
-const selected = new Set<string>();
+// The selection: a set of files, or every file the view matches minus some.
+// "Every match" stays a flag: the host resolves it to files only for an edit.
+const selection = { uris: new Set<string>(), all: false, except: new Set<string>(), scope: "" };
 let lastClicked: string | undefined;
+let indexing: IndexProgress | undefined;
+
+function isSelected(uri: string): boolean {
+  return selection.all ? !selection.except.has(uri) : selection.uris.has(uri);
+}
+
+function setSelected(uri: string, on: boolean): void {
+  if (selection.all) on ? selection.except.delete(uri) : selection.except.add(uri);
+  else on ? selection.uris.add(uri) : selection.uris.delete(uri);
+}
+
+function selectionCount(): number {
+  return selection.all ? Math.max(0, (result?.matchCount ?? 0) - selection.except.size) : selection.uris.size;
+}
+
+function clearSelection(): void {
+  selection.uris.clear();
+  selection.all = false;
+  selection.except.clear();
+}
+
+function selectionTarget(): EditTarget {
+  return selection.all ? { allMatching: true, except: [...selection.except] } : { uris: [...selection.uris] };
+}
+
+/** "Every match" means the matches of what was shown: a new view, filter or search ends it. */
+function rescopeSelection(r: ViewResult): void {
+  const scope = JSON.stringify([r.viewIndex, r.rawFilters, search]);
+  if (scope === selection.scope) return;
+  const otherView = !selection.scope.startsWith(`[${r.viewIndex},`);
+  selection.scope = scope;
+  selection.all = false;
+  selection.except.clear();
+  if (otherView) selection.uris.clear();
+}
 // The bulk-edit inputs survive re-renders, so one edit can follow another.
 const bulk = { key: "", value: "", target: "" };
 // Filter edits in progress. A condition without its value is not written to
@@ -446,13 +483,14 @@ function toolbar(): HTMLElement {
     button(filters ? `Filter (${filters})` : "Filter", () => togglePanel("filter"), panel === "filter" ? "tool active" : "tool"),
     button("Properties", () => togglePanel("properties"), panel === "properties" ? "tool active" : "tool"),
     searchBox,
-    el("span", { class: "count" }, `${r.allUris.length} ${r.allUris.length === 1 ? "result" : "results"}`),
+    el("span", { class: "count", title: indexing?.checking ? "Showing the cached index while checking files for changes" : undefined },
+      `${r.matchCount} ${r.matchCount === 1 ? "result" : "results"}${indexing?.checking ? " · updating…" : ""}`),
     button("YAML", () => send({ type: "openAsText" }), "tool", "Edit the .base file as text"),
   );
 }
 
-function edit(uris: string[], edits: UiEdit[]): void {
-  send({ type: "edit", uris, edits });
+function edit(target: EditTarget, edits: UiEdit[]): void {
+  send({ type: "edit", target, edits });
 }
 
 function bulkBar(): HTMLElement {
@@ -464,14 +502,14 @@ function bulkBar(): HTMLElement {
   key.oninput = () => (bulk.key = key.value);
   value.oninput = () => (bulk.value = value.value);
   target.oninput = () => (bulk.target = target.value);
-  const uris = () => [...selected];
+  const uris = selectionTarget;
   const needKey = () => {
     if (!key.value.trim()) key.focus();
     return Boolean(key.value.trim());
   };
 
   const bar = el("div", { class: "bulk" },
-    el("span", { class: "selection" }, `${selected.size} selected`),
+    el("span", { class: "selection" }, `${selectionCount()} selected`),
     list, key, value,
     button("Set", () => needKey() && edit(uris(), [{ kind: "set", key: key.value.trim(), input: value.value }]), "primary"),
     button("Remove", () => needKey() && edit(uris(), [{ kind: "delete", key: key.value.trim() }])),
@@ -479,14 +517,16 @@ function bulkBar(): HTMLElement {
     target,
     button("Rename", () => needKey() && target.value.trim() && edit(uris(), [{ kind: "rename", from: key.value.trim(), to: target.value.trim() }])),
   );
-  if (selected.size < r.allUris.length && r.rows.every((row) => selected.has(row.uri))) {
-    bar.append(button(`Select all ${r.allUris.length}`, () => {
-      for (const u of r.allUris) selected.add(u);
+  if (selectionCount() < r.matchCount && r.rows.every((row) => isSelected(row.uri))) {
+    bar.append(button(`Select all ${r.matchCount}`, () => {
+      selection.all = true;
+      selection.except.clear();
+      selection.uris.clear();
       render();
     }, "link"));
   }
   bar.append(button("Clear selection", () => {
-    selected.clear();
+    clearSelection();
     render();
   }, "link"));
   return bar;
@@ -524,7 +564,7 @@ function cellContent(c: Column, row: Row): (Node | string)[] {
 function commitValue(row: Row, c: Column, value: unknown): void {
   const empty = isEmptyValue(value);
   row.cells[c.id] = empty ? null : value;
-  edit([row.uri], [empty ? { kind: "delete", key: c.id } : { kind: "setValue", key: c.id, value }]);
+  edit({ uris: [row.uri] }, [empty ? { kind: "delete", key: c.id } : { kind: "setValue", key: c.id, value }]);
 }
 
 function cellAt(rowIndex: number, colIndex: number): HTMLTableCellElement | null {
@@ -655,7 +695,7 @@ function startEdit(rowIndex: number, colIndex: number): void {
         if (c.type === "object") {
           // Objects are typed as YAML and read by the host.
           row.cells[c.id] = next;
-          edit([row.uri], [isEmptyValue(next) ? { kind: "delete", key: c.id } : { kind: "set", key: c.id, input: String(next) }]);
+          edit({ uris: [row.uri] }, [isEmptyValue(next) ? { kind: "delete", key: c.id } : { kind: "set", key: c.id, input: String(next) }]);
         } else {
           commitValue(row, c, next);
         }
@@ -688,13 +728,13 @@ function toggle(uri: string, rows: Row[], range: boolean): void {
     const a = rows.findIndex((r) => r.uri === lastClicked);
     const b = rows.findIndex((r) => r.uri === uri);
     if (a >= 0 && b >= 0) {
-      const on = !selected.has(uri);
-      for (const r of rows.slice(Math.min(a, b), Math.max(a, b) + 1)) on ? selected.add(r.uri) : selected.delete(r.uri);
+      const on = !isSelected(uri);
+      for (const r of rows.slice(Math.min(a, b), Math.max(a, b) + 1)) setSelected(r.uri, on);
       lastClicked = uri;
       return;
     }
   }
-  selected.has(uri) ? selected.delete(uri) : selected.add(uri);
+  setSelected(uri, !isSelected(uri));
   lastClicked = uri;
 }
 
@@ -702,13 +742,14 @@ function table(): HTMLElement {
   const r = result!;
   const rows = r.rows;
   if (rows.length === 0) {
-    return el("p", { class: "empty" }, search ? "No file matches the search." : "No file matches the filters of this view.");
+    const why = indexing && !indexing.checking ? "Indexing the workspace…" : search ? "No file matches the search." : "No file matches the filters of this view.";
+    return el("p", { class: "empty" }, why);
   }
   const sort = r.sort[0];
   const all = el("input", { type: "checkbox", title: "Select the rows on this page" });
-  all.checked = rows.every((row) => selected.has(row.uri));
+  all.checked = rows.every((row) => isSelected(row.uri));
   all.onchange = () => {
-    for (const row of rows) all.checked ? selected.add(row.uri) : selected.delete(row.uri);
+    for (const row of rows) setSelected(row.uri, all.checked);
     render();
   };
   const head = el("tr", {}, el("th", { class: "check" }, all));
@@ -725,12 +766,12 @@ function table(): HTMLElement {
   const body = el("tbody");
   rows.forEach((row, ri) => {
     const box = el("input", { type: "checkbox" });
-    box.checked = selected.has(row.uri);
+    box.checked = isSelected(row.uri);
     box.onclick = (e) => {
       toggle(row.uri, rows, e.shiftKey);
       render();
     };
-    const tr = el("tr", { class: selected.has(row.uri) ? "selected" : "", title: row.readOnly }, el("td", { class: "check" }, box));
+    const tr = el("tr", { class: isSelected(row.uri) ? "selected" : "", title: row.readOnly }, el("td", { class: "check" }, box));
     r.columns.forEach((c, ci) => {
       const td = el("td", { "data-r": String(ri), "data-c": String(ci) }, ...cellContent(c, row));
       if (c.id === "file.name" || c.id === "file.path" || c.id === "file.basename") {
@@ -751,8 +792,8 @@ function table(): HTMLElement {
 
 function pager(): HTMLElement {
   const r = result!;
-  const from = r.allUris.length === 0 ? 0 : r.page * r.pageSize + 1;
-  const to = Math.min((r.page + 1) * r.pageSize, r.allUris.length);
+  const from = r.matchCount === 0 ? 0 : r.page * r.pageSize + 1;
+  const to = Math.min((r.page + 1) * r.pageSize, r.matchCount);
   const prev = button("‹ Previous", () => setUi({ page: r.page - 1 }));
   prev.disabled = r.page === 0;
   const next = button("Next ›", () => setUi({ page: r.page + 1 }));
@@ -760,7 +801,7 @@ function pager(): HTMLElement {
   const sizes = [25, 50, 100, 250, 500];
   if (!sizes.includes(r.pageSize)) sizes.push(r.pageSize);
   return el("div", { class: "pager" },
-    el("span", { class: "count" }, `${from}–${to} of ${r.allUris.length}`),
+    el("span", { class: "count" }, `${from}–${to} of ${r.matchCount}`),
     prev,
     el("span", {}, `Page ${r.page + 1} of ${r.pageCount}`),
     next,
@@ -795,12 +836,13 @@ function render(): void {
   if (error) parts.push(el("div", { class: "banner error" }, error));
   for (const e of result?.errors ?? []) parts.push(el("div", { class: "banner warn" }, e));
   if (notice) parts.push(el("div", { class: "banner info" }, notice));
+  if (indexing && !indexing.checking) {
+    parts.push(el("div", { class: "banner info" }, `Indexing ${indexing.done.toLocaleString()} of ${indexing.total.toLocaleString()} files…`));
+  }
   if (result) {
-    const known = new Set(result.allUris);
-    for (const u of [...selected]) if (!known.has(u)) selected.delete(u);
-    if (selected.size > 0) parts.push(bulkBar());
+    if (selectionCount() > 0) parts.push(bulkBar());
     parts.push(el("div", { class: "table-host" }, table()));
-    if (result.pageCount > 1 || result.allUris.length > 25) parts.push(pager());
+    if (result.pageCount > 1 || result.matchCount > 25) parts.push(pager());
   }
   app.replaceChildren(...parts);
 
@@ -820,6 +862,8 @@ window.addEventListener("message", (event: MessageEvent<ToWebview>) => {
   switch (msg.type) {
     case "render":
       result = msg.result;
+      indexing = msg.indexing;
+      rescopeSelection(msg.result);
       error = undefined;
       reconcileDrafts(msg.result);
       if (editing) {

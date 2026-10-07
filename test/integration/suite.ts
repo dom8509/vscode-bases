@@ -106,12 +106,47 @@ const tests: [string, (ws: vscode.Uri, index: WorkspaceIndex) => Promise<void>][
   ],
 ];
 
+const log = vscode.window.createOutputChannel("Bases tests", { log: true });
+const storage = vscode.Uri.file(`${process.env.TMPDIR ?? "/tmp"}/bases-it-storage-${process.pid}`);
+
+async function freshIndex(): Promise<WorkspaceIndex> {
+  const index = new WorkspaceIndex(storage, log);
+  await index.whenScanned();
+  return index;
+}
+
+const cacheTests: [string, (ws: vscode.Uri) => Promise<void>][] = [
+  [
+    "a second start reads no file again, but notices a changed and a deleted one",
+    async (ws) => {
+      const first = await freshIndex();
+      await first.saveCache();
+      first.dispose();
+
+      // Only files with unsaved changes in an editor are read: their text is not what was cached.
+      const unsaved = vscode.workspace.textDocuments.filter((d) => d.isDirty && /\.(md|ya?ml)$/.test(d.uri.path)).length;
+      const second = await freshIndex();
+      assert.equal(second.lastScan?.read, unsaved, JSON.stringify(second.lastScan));
+      assert.ok(second.lastScan!.reused >= 7);
+      second.dispose();
+
+      const meeting = vscode.Uri.joinPath(ws, "notes/meeting.md");
+      await vscode.workspace.fs.writeFile(meeting, new TextEncoder().encode("---\ntype: retro\n---\n"));
+      await vscode.workspace.fs.delete(vscode.Uri.joinPath(ws, "deploy/worker.yml"));
+      const third = await freshIndex();
+      assert.deepEqual({ read: third.lastScan?.read, removed: third.lastScan?.removed }, { read: unsaved + 1, removed: 1 });
+      assert.equal(third.get(meeting)?.properties.type, "retro");
+      third.dispose();
+    },
+  ],
+];
+
 export async function run(): Promise<void> {
   const ws = vscode.workspace.workspaceFolders![0]!.uri;
   // No Refactor Preview: nobody is there to confirm it.
   await vscode.workspace.getConfiguration("bases").update("confirmBulkEdits", false, vscode.ConfigurationTarget.Global);
-  const index = new WorkspaceIndex();
-  await index.ensureReady();
+  const index = new WorkspaceIndex(undefined, log);
+  await index.whenScanned();
 
   let failed = 0;
   for (const [name, test] of tests) {
@@ -124,5 +159,15 @@ export async function run(): Promise<void> {
     }
   }
   index.dispose();
+  for (const [name, test] of cacheTests) {
+    try {
+      await test(ws);
+      console.log(`  ✓ ${name}`);
+    } catch (e) {
+      failed++;
+      console.log(`  ✗ ${name}\n    ${(e as Error).stack ?? e}`);
+    }
+  }
+  await vscode.workspace.fs.delete(storage, { recursive: true }).then(undefined, () => undefined);
   if (failed > 0) throw new Error(`${failed} integration test(s) failed`);
 }

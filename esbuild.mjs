@@ -23,6 +23,7 @@ if (tests) {
   builds.push(
     { entryPoints: ["test/integration/run.ts"], outfile: "dist/test/run.js", platform: "node", format: "cjs", external: ["@vscode/test-electron"] },
     { entryPoints: ["test/integration/suite.ts"], outfile: "dist/test/suite.js", platform: "node", format: "cjs", external: ["vscode"] },
+    { entryPoints: ["test/integration/perf.ts"], outfile: "dist/test/perf.js", platform: "node", format: "cjs", external: ["vscode"] },
   );
 }
 

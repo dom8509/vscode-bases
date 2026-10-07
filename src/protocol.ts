@@ -19,8 +19,18 @@ export interface UiState {
   query: string;
 }
 
+/** How far indexing is. `checking` is a scan over records already shown from the cache. */
+export interface IndexProgress {
+  done: number;
+  total: number;
+  checking: boolean;
+}
+
+/** Which files an edit applies to: a list, or every file the view matches except some. */
+export type EditTarget = { uris: string[] } | { allMatching: true; except: string[] };
+
 export type ToWebview =
-  | { type: "render"; result: ViewResult }
+  | { type: "render"; result: ViewResult; indexing?: IndexProgress }
   | { type: "error"; message: string }
   | { type: "notice"; message: string };
 
@@ -30,7 +40,7 @@ export type FromWebview =
   /** Changes to the .base file: views, filters, columns, sort, formulas. */
   | { type: "baseOps"; ops: BaseOp[] }
   | { type: "open"; uri: string }
-  | { type: "edit"; uris: string[]; edits: UiEdit[] }
+  | { type: "edit"; target: EditTarget; edits: UiEdit[] }
   | { type: "openAsText" };
 
 export type { BaseOp, PropertyEdit, SortSpec, ViewResult };

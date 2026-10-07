@@ -130,8 +130,10 @@ export interface ViewResult {
   columns: Column[];
   /** The rows of the current page. */
   rows: Row[];
-  /** Every file the view and the search match, across all pages: for "select all". */
-  allUris: string[];
+  /** Files the view and the search match, across all pages. */
+  matchCount: number;
+  /** Those files' URIs; only with `collectUris`, to resolve "all matching" for an edit. */
+  allUris?: string[];
   /** Files the filters match, before limit and search. */
   total: number;
   page: number;
@@ -221,6 +223,8 @@ export interface ComputeOptions {
   pageSize?: number;
   /** Free-text search over the cells of the view's columns. */
   query?: string;
+  /** Also return the URIs of every match (not just the page's). */
+  collectUris?: boolean;
   now?: Date;
   thisFile?: FileInfo;
 }
@@ -345,7 +349,8 @@ export function computeView(base: BaseConfig, records: Iterable<FileRecord>, opt
     formulas: Object.fromEntries(Object.entries(base.formulas).map(([k, v]) => [k, String(v)])),
     columns,
     rows,
-    allUris: found.map((h) => h.rec.uri),
+    matchCount: found.length,
+    allUris: opts.collectUris ? found.map((h) => h.rec.uri) : undefined,
     total: hits.length,
     page,
     pageSize,
