@@ -4,9 +4,10 @@ import type { SortSpec, ViewResult } from "./core/base";
 import type { BaseOp } from "./core/baseEdit";
 import type { PropertyEdit } from "./core/writer";
 
-/** A value as typed into the UI; the host reads it as YAML. */
+/** An edit from the UI: `set` carries text the host reads as YAML, `setValue` a typed value from a cell editor. */
 export type UiEdit =
   | { kind: "set"; key: string; input: string }
+  | { kind: "setValue"; key: string; value: unknown }
   | { kind: "delete"; key: string }
   | { kind: "rename"; from: string; to: string };
 

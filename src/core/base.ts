@@ -54,10 +54,54 @@ export function propertyRef(id: string): PropertyRef {
   return { id, ns: "note", name: id };
 }
 
+/** How a column's values are shown and edited. */
+export type ValueType = "text" | "number" | "checkbox" | "date" | "datetime" | "list" | "object";
+
 export interface Column {
   id: string;
   label: string;
   editable: boolean;
+  type: ValueType;
+  /** Values already used in this column, for autocomplete; editable columns only. */
+  suggestions?: string[];
+}
+
+// Properties Obsidian treats as lists even before they hold a value.
+const LIST_PROPERTIES = new Set(["tags", "aliases", "cssclasses"]);
+
+/** The type most of a column's values have; a column with mixed or no values is text. */
+export function inferType(name: string, values: unknown[]): ValueType {
+  if (LIST_PROPERTIES.has(name)) return "list";
+  const present = values.filter((v) => v !== null && v !== undefined && v !== "");
+  if (present.length === 0) return "text";
+  const kind = (v: unknown): ValueType => {
+    if (typeof v === "boolean") return "checkbox";
+    if (typeof v === "number") return "number";
+    if (Array.isArray(v)) return "list";
+    if (typeof v === "object") return "object";
+    if (/^\d{4}-\d\d-\d\d$/.test(String(v))) return "date";
+    if (/^\d{4}-\d\d-\d\d[T ]\d\d:\d\d(:\d\d)?$/.test(String(v))) return "datetime";
+    return "text";
+  };
+  const counts = new Map<ValueType, number>();
+  for (const v of present) counts.set(kind(v), (counts.get(kind(v)) ?? 0) + 1);
+  const [top, n] = [...counts].sort((a, b) => b[1] - a[1])[0]!;
+  // A list column tolerates single values: YAML often writes a one-item list as a scalar.
+  if (counts.has("list") && [...counts.keys()].every((k) => k === "list" || k === "text")) return "list";
+  return n === present.length ? top : "text";
+}
+
+/** Distinct scalar values (and list items) of a column, the most used first. */
+function suggestionsOf(values: unknown[], limit = 100): string[] {
+  const counts = new Map<string, number>();
+  for (const v of values) {
+    for (const x of Array.isArray(v) ? v : [v]) {
+      if (x === null || x === undefined || x === "" || typeof x === "object") continue;
+      const s = String(x);
+      counts.set(s, (counts.get(s) ?? 0) + 1);
+    }
+  }
+  return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, limit).map(([s]) => s);
 }
 
 export interface Row {
@@ -280,7 +324,11 @@ export function computeView(base: BaseConfig, records: Iterable<FileRecord>, opt
     cells: h.cells ?? cellsOf(h.ctx),
   }));
 
-  const columns: Column[] = refs.map((ref) => ({ id: ref.id, label: label(base, ref), editable: ref.ns === "note" }));
+  const columns: Column[] = refs.map((ref) => {
+    if (ref.ns !== "note") return { id: ref.id, label: label(base, ref), editable: false, type: "text" };
+    const values = hits.map((h) => h.rec.properties[ref.name]);
+    return { id: ref.id, label: label(base, ref), editable: true, type: inferType(ref.name, values), suggestions: suggestionsOf(values) };
+  });
   const properties: PropertyInfo[] = [
     ...FILE_PROPERTIES.map((n) => propertyRef(`file.${n}`)),
     ...propertyNames.map(propertyRef),

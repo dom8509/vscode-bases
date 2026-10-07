@@ -2,7 +2,7 @@
 // what the person changed: cell values, and the base itself (views, filters,
 // columns, sort, formulas) the way Obsidian Bases lets you edit it.
 
-import type { PropertyInfo, Row } from "../src/core/base";
+import type { Column, PropertyInfo, Row } from "../src/core/base";
 import {
   CONJUNCTIONS,
   conditionExpr,
@@ -487,27 +487,193 @@ function bulkBar(): HTMLElement {
   return bar;
 }
 
-function startEdit(td: HTMLTableCellElement, row: Row, column: string): void {
-  if (td.querySelector("input")) return;
-  const original = editable(row.cells[column]);
-  const input = el("input", { class: "cell-input", value: original });
-  td.replaceChildren(input);
-  input.focus();
-  input.select();
+// --- editing cells -------------------------------------------------------------------
+
+// While a cell editor is open, renders from the host wait, so the editor is not
+// pulled out from under the person typing; they happen when it closes.
+let editing = false;
+let renderPending = false;
+
+function isEmptyValue(v: unknown): boolean {
+  return v === null || v === undefined || v === "" || (Array.isArray(v) && v.length === 0);
+}
+
+/** What a cell shows when it is not being edited. */
+function cellContent(c: Column, row: Row): (Node | string)[] {
+  const v = row.cells[c.id];
+  if (c.type === "checkbox") {
+    const box = el("input", { type: "checkbox", class: "cell-check", title: c.editable ? "Click to toggle" : undefined });
+    box.checked = v === true;
+    box.disabled = !c.editable || Boolean(row.readOnly);
+    box.onclick = (e) => {
+      e.stopPropagation();
+      commitValue(row, c, box.checked);
+    };
+    return [box];
+  }
+  if (c.type === "list" && Array.isArray(v)) return v.map((x) => el("span", { class: "chip" }, display(x)));
+  return [display(v)];
+}
+
+/** Shows the new value at once, then has the host write it. An empty value removes the property. */
+function commitValue(row: Row, c: Column, value: unknown): void {
+  const empty = isEmptyValue(value);
+  row.cells[c.id] = empty ? null : value;
+  edit([row.uri], [empty ? { kind: "delete", key: c.id } : { kind: "setValue", key: c.id, value }]);
+}
+
+function cellAt(rowIndex: number, colIndex: number): HTMLTableCellElement | null {
+  return app.querySelector<HTMLTableCellElement>(`td[data-r="${rowIndex}"][data-c="${colIndex}"]`);
+}
+
+/** The next editable cell from (r, c) in a direction, wrapping to the next or previous row. */
+function nextEditable(rowIndex: number, colIndex: number, move: "down" | "right" | "left"): [number, number] | undefined {
+  const r = result!;
+  const ok = (ri: number, ci: number) => r.columns[ci]?.editable && r.columns[ci]?.type !== "checkbox" && r.rows[ri] && !r.rows[ri]!.readOnly;
+  if (move === "down") {
+    for (let ri = rowIndex + 1; ri < r.rows.length; ri++) if (ok(ri, colIndex)) return [ri, colIndex];
+    return undefined;
+  }
+  const step = move === "right" ? 1 : -1;
+  let ri = rowIndex;
+  let ci = colIndex + step;
+  while (ri >= 0 && ri < r.rows.length) {
+    while (ci >= 0 && ci < r.columns.length) {
+      if (ok(ri, ci)) return [ri, ci];
+      ci += step;
+    }
+    ri += step;
+    ci = step > 0 ? 0 : r.columns.length - 1;
+  }
+  return undefined;
+}
+
+function dateValue(v: unknown, type: "date" | "datetime"): string {
+  if (typeof v !== "string") return "";
+  return type === "date" ? v.slice(0, 10) : v.replace(" ", "T").slice(0, 16);
+}
+
+/** Opens the editor that fits the column's type in a cell. */
+function startEdit(rowIndex: number, colIndex: number): void {
+  const r = result!;
+  const row = r.rows[rowIndex];
+  const c = r.columns[colIndex];
+  const td = cellAt(rowIndex, colIndex);
+  if (!row || !c || !td || td.querySelector(".cell-input")) return;
+  if (c.type === "checkbox") {
+    commitValue(row, c, row.cells[c.id] !== true);
+    td.replaceChildren(...cellContent(c, row));
+    return;
+  }
+
+  const original = row.cells[c.id];
+  let read: () => unknown;
+  let focus: HTMLInputElement;
+  td.classList.add("editing");
+
+  if (c.type === "list") {
+    // Chips for the items, and an input that adds one on Enter or comma.
+    const items: unknown[] = Array.isArray(original) ? [...original] : isEmptyValue(original) ? [] : [original];
+    const input = el("input", { class: "cell-input chip-input", list: `sugg-${colIndex}`, placeholder: items.length ? "" : "Add item…" });
+    // Only the chips are redrawn: moving the input in the DOM would blur it and close the editor.
+    const chips = el("span", { class: "chips" });
+    const wrap = el("div", { class: "chip-editor" }, chips, input);
+    wrap.onmousedown = (e) => {
+      if (e.target !== input) e.preventDefault();
+    };
+    const draw = () => {
+      chips.replaceChildren(
+        ...items.map((x, i) => {
+          const remove = el("span", { class: "chip-x", title: "Remove" }, "×");
+          // mousedown, not click: keep the focus in the editor.
+          remove.onmousedown = (e) => {
+            e.preventDefault();
+            items.splice(i, 1);
+            draw();
+          };
+          return el("span", { class: "chip" }, display(x), remove);
+        }),
+      );
+      input.placeholder = items.length ? "" : "Add item…";
+    };
+    const take = () => {
+      const t = input.value.trim().replace(/,$/, "");
+      if (t) items.push(t);
+      input.value = "";
+    };
+    input.addEventListener("keydown", (e) => {
+      if ((e.key === "Enter" || e.key === ",") && input.value.trim()) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        take();
+        draw();
+      } else if (e.key === "Backspace" && input.value === "" && items.length) {
+        items.pop();
+        draw();
+      }
+    });
+    read = () => {
+      take();
+      return items;
+    };
+    focus = input;
+    td.replaceChildren(wrap);
+    draw();
+    input.focus();
+  } else {
+    let attrs: Record<string, string> = { class: "cell-input" };
+    let value = editable(original);
+    if (c.type === "number") attrs = { ...attrs, type: "number", step: "any" };
+    else if (c.type === "date" || c.type === "datetime") {
+      attrs = { ...attrs, type: c.type === "date" ? "date" : "datetime-local" };
+      value = dateValue(original, c.type);
+    } else if (c.type === "text") attrs = { ...attrs, list: `sugg-${colIndex}` };
+    const input = el("input", { ...attrs, value });
+    // Text stays text: "3" typed into a text column is the string "3".
+    read = () => (c.type === "number" ? (input.value.trim() === "" ? null : Number(input.value)) : input.value);
+    focus = input;
+    td.replaceChildren(input);
+    input.focus();
+    if (c.type === "text" || c.type === "object") input.select();
+  }
+
+  editing = true;
   let done = false;
-  const finish = (commit: boolean) => {
+  const finish = (commit: boolean, move?: "down" | "right" | "left") => {
     if (done) return;
     done = true;
-    if (commit && input.value !== original) {
-      edit([row.uri], [input.value.trim() === "" ? { kind: "delete", key: column } : { kind: "set", key: column, input: input.value }]);
+    editing = false;
+    if (commit) {
+      const next = read();
+      const before = c.type === "date" || c.type === "datetime" ? dateValue(original, c.type) : original;
+      if (JSON.stringify(next ?? null) !== JSON.stringify(before ?? null) && !(isEmptyValue(next) && isEmptyValue(before))) {
+        if (c.type === "object") {
+          // Objects are typed as YAML and read by the host.
+          row.cells[c.id] = next;
+          edit([row.uri], [isEmptyValue(next) ? { kind: "delete", key: c.id } : { kind: "set", key: c.id, input: String(next) }]);
+        } else {
+          commitValue(row, c, next);
+        }
+      }
     }
-    td.textContent = display(row.cells[column]);
+    td.classList.remove("editing");
+    td.replaceChildren(...cellContent(c, row));
+    const target = move && nextEditable(rowIndex, colIndex, move);
+    if (target) startEdit(...target);
+    else if (renderPending) render();
   };
-  input.onkeydown = (e) => {
-    if (e.key === "Enter") finish(true);
-    if (e.key === "Escape") finish(false);
-  };
-  input.onblur = () => finish(true);
+  focus.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      finish(true, "down");
+    } else if (e.key === "Tab") {
+      e.preventDefault();
+      finish(true, e.shiftKey ? "left" : "right");
+    } else if (e.key === "Escape") {
+      finish(false);
+    }
+  });
+  focus.addEventListener("blur", () => finish(true));
 }
 
 function toggle(uri: string, rows: Row[], range: boolean): void {
@@ -546,8 +712,11 @@ function table(): HTMLElement {
     head.append(th);
   }
 
+  // Autocomplete: the values each editable column already holds.
+  const lists = r.columns.map((c, ci) => el("datalist", { id: `sugg-${ci}` }, ...(c.suggestions ?? []).map((v) => el("option", { value: v }))));
+
   const body = el("tbody");
-  for (const row of rows) {
+  rows.forEach((row, ri) => {
     const box = el("input", { type: "checkbox" });
     box.checked = selected.has(row.uri);
     box.onclick = (e) => {
@@ -555,22 +724,22 @@ function table(): HTMLElement {
       render();
     };
     const tr = el("tr", { class: selected.has(row.uri) ? "selected" : "", title: row.readOnly }, el("td", { class: "check" }, box));
-    for (const c of r.columns) {
-      const td = el("td", {}, display(row.cells[c.id]));
+    r.columns.forEach((c, ci) => {
+      const td = el("td", { "data-r": String(ri), "data-c": String(ci) }, ...cellContent(c, row));
       if (c.id === "file.name" || c.id === "file.path" || c.id === "file.basename") {
         td.className = "file";
         td.onclick = () => send({ type: "open", uri: row.uri });
       } else if (c.editable && !row.readOnly) {
-        td.className = "editable";
-        td.ondblclick = () => startEdit(td, row, c.id);
+        td.className = `editable type-${c.type}`;
+        td.onclick = () => startEdit(ri, ci);
       } else {
         td.className = "readonly";
       }
       tr.append(td);
-    }
+    });
     body.append(tr);
-  }
-  return el("table", {}, el("thead", {}, head), body);
+  });
+  return el("div", {}, ...lists, el("table", {}, el("thead", {}, head), body));
 }
 
 function pager(): HTMLElement {
@@ -597,6 +766,7 @@ function pager(): HTMLElement {
 // --- render -------------------------------------------------------------------
 
 function render(): void {
+  renderPending = false;
   // Re-rendering replaces every input: keep focus, caret and unsent typing.
   const active = document.activeElement as HTMLInputElement | null;
   const focusKey = active?.dataset?.key;
@@ -644,8 +814,10 @@ window.addEventListener("message", (event: MessageEvent<ToWebview>) => {
       result = msg.result;
       error = undefined;
       reconcileDrafts(msg.result);
-      // Do not pull an open cell edit out from under the person typing.
-      if (document.activeElement instanceof HTMLInputElement && document.activeElement.classList.contains("cell-input")) return;
+      if (editing) {
+        renderPending = true;
+        return;
+      }
       render();
       break;
     case "error":

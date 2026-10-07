@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeView, parseBase } from "../src/core/base";
+import { computeView, inferType, parseBase } from "../src/core/base";
 import { NEW_BASE, updateBase } from "../src/core/baseEdit";
 import { record } from "./helpers";
 
@@ -182,5 +182,28 @@ describe("editing a base", () => {
     expect(out.startsWith("formulas:\n  twice: priority * 2\nviews:\n")).toBe(true);
     out = updateBase(out, [{ op: "setFormula", name: "twice", expr: undefined }]);
     expect(out).toBe(NEW_BASE);
+  });
+});
+
+describe("column types", () => {
+  it("infers the type most values share", () => {
+    expect(inferType("x", [true, false, undefined])).toBe("checkbox");
+    expect(inferType("x", [1, 2.5])).toBe("number");
+    expect(inferType("x", ["2026-10-07", "2025-01-01"])).toBe("date");
+    expect(inferType("x", ["2026-10-07T10:00", "2026-10-07 09:30:00"])).toBe("datetime");
+    expect(inferType("x", [["a"], "b"])).toBe("list");
+    expect(inferType("x", [{ a: 1 }])).toBe("object");
+    expect(inferType("x", ["a", 1])).toBe("text");
+    expect(inferType("x", [])).toBe("text");
+    expect(inferType("tags", [])).toBe("list");
+  });
+
+  it("types the columns of a view and suggests their values", () => {
+    const base = parseBase("views:\n  - type: table\n    name: x\n    order: [file.name, status, priority, tags, due]\n");
+    const view = computeView(base, records, { viewIndex: 0 });
+    expect(view.columns.map((c) => [c.id, c.type])).toEqual([["file.name", "text"], ["status", "text"], ["priority", "number"], ["tags", "list"], ["due", "date"]]);
+    expect(view.columns[1]!.suggestions).toEqual(["open", "done"]);
+    expect(view.columns[3]!.suggestions).toEqual(["project"]);
+    expect(view.columns[0]!.suggestions).toBeUndefined();
   });
 });

@@ -13,7 +13,9 @@ import { fileInfo, type WorkspaceIndex } from "./indexer";
 export const VIEW_TYPE = "bases.editor";
 
 function toPropertyEdit(e: UiEdit): PropertyEdit {
-  return e.kind === "set" ? { kind: "set", key: e.key, value: parseInputValue(e.input) } : e;
+  if (e.kind === "set") return { kind: "set", key: e.key, value: parseInputValue(e.input) };
+  if (e.kind === "setValue") return { kind: "set", key: e.key, value: e.value };
+  return e;
 }
 
 function nonce(): string {

@@ -27,9 +27,14 @@ at once.
 - **Search and pages:** the search box searches the cells of the current
   view. The table shows 50 rows per page (`bases.pageSize`); the pager below
   changes page and page size.
-- **Edit one value:** double-click a cell, type, press Enter. Input is read as
-  YAML: `3` is a number, `true` a boolean, `[a, b]` a list. An empty cell
-  removes the property.
+- **Edit a value:** click a cell. The editor fits the column: a checkbox
+  toggles with one click, numbers get a number field, dates a date picker,
+  lists their items as chips (Enter or comma adds one, × or Backspace
+  removes one), and text suggests the values the column already has. Enter
+  saves and moves down, Tab moves right (Shift-Tab left), Escape cancels.
+  Clearing a value removes the property. A column's type comes from the
+  values most of its files hold; `tags`, `aliases` and `cssclasses` are
+  always lists.
 - **Edit many files:** tick rows (Shift-click for a range; the header box
   ticks the page, then *Select all* every matching file), then fill in
   *property* and *value* in the bar above the table and choose *Set*,
