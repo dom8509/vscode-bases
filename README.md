@@ -174,7 +174,25 @@ naming what is unsupported, rather than silently matching nothing.
 - **Dates:** `now() - "1 week"`, `date(due) < today()`
 
 Not yet: links (`file.hasLink`, `link()`), inline `#tags` in the note body,
-`groupBy`, summaries, card and list views.
+summaries, the map view (it shows as a table), and Obsidian's `groupOrder`.
+
+### View options
+
+As Obsidian writes them in a view, and set in the view settings:
+
+| Key | Layout | Values |
+|---|---|---|
+| `rowHeight` | table | `short` (default), `medium`, `tall`, `extra-tall` |
+| `cardSize` | cards | card width in pixels, default `200` |
+| `image` | cards, kanban | the property with a card's cover: an attachment link (`"[[cover.jpg]]"`), a web address, or a color (`#3366ff`) |
+| `imageFit` | cards, kanban | `contain`; empty or missing is *cover* |
+| `imageAspectRatio` | cards, kanban | image height ÷ width, default `1` (square) |
+
+An attachment is looked for next to the note, from the workspace root, and
+then anywhere in the workspace by its name.
+
+Additions of this extension: the `document` layout, and `groupBy.separator`
+and `groupBy.order` (lane order on a board).
 
 ## Large workspaces
 

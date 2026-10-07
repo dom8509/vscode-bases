@@ -3,6 +3,7 @@
 // columns, sort, formulas) the way Obsidian Bases lets you edit it.
 
 import type { Column, PropertyInfo, Row } from "../src/core/base";
+import { DEFAULT_CARD_SIZE, type RowHeight } from "../src/core/display";
 import {
   CONJUNCTIONS,
   conditionExpr,
@@ -456,7 +457,52 @@ function viewPanel(): HTMLElement {
     el("label", { class: "field" }, el("span", {}, "Name"), name),
     el("div", { class: "field" }, el("span", {}, "Layout"), layout),
     ...groupBy,
+    ...displayFields(v, i),
   );
+}
+
+/** A slider that writes its value when let go, with the value next to it. */
+function slider(key: string, value: number, min: number, max: number, step: number, show: (n: number) => string, onCommit: (n: number) => void): HTMLElement {
+  const input = el("input", { type: "range", min: String(min), max: String(max), step: String(step), "data-key": key, class: "slider" });
+  input.value = String(value);
+  const label = el("span", { class: "slider-value" }, show(value));
+  input.oninput = () => (label.textContent = show(Number(input.value)));
+  input.onchange = () => onCommit(Number(input.value));
+  return el("span", { class: "slider-row" }, input, label);
+}
+
+const ROW_HEIGHTS: { value: RowHeight; label: string }[] = [
+  { value: "short", label: "Short" },
+  { value: "medium", label: "Medium" },
+  { value: "tall", label: "Tall" },
+  { value: "extra-tall", label: "Extra tall" },
+];
+
+/** The options of a layout, as Obsidian has them: row height for a table; card size and cover image for cards and boards. */
+function displayFields(v: ViewResult["views"][number], i: number): HTMLElement[] {
+  const d = v.display;
+  const set = (op: BaseOp) => ops(op);
+  const field = (label: string, control: HTMLElement, title?: string) => el("label", { class: "field", title }, el("span", {}, label), control);
+  const out: HTMLElement[] = [];
+  if (v.type === "table") {
+    out.push(field("Row height", select(`view-row-height-${i}`, ROW_HEIGHTS, d.rowHeight, (h) =>
+      set({ op: "setView", index: i, key: "rowHeight", value: h === "short" ? undefined : h }))));
+  }
+  if (v.type === "cards") {
+    out.push(field("Card size", slider(`view-card-size-${i}`, d.cardSize, 100, 500, 10, (n) => `${n}px`, (n) =>
+      set({ op: "setView", index: i, key: "cardSize", value: n === DEFAULT_CARD_SIZE ? undefined : n }))));
+  }
+  if (v.type === "cards" || v.type === "kanban") {
+    out.push(field("Image property", select(`view-image-${i}`, [{ value: "", label: "—" }, ...propertyOptions(d.image ? [d.image] : [])], d.image ?? "", (p) =>
+      set({ op: "setView", index: i, key: "image", value: p || undefined })), "A property with an attachment link ([[cover.jpg]]), a web address, or a color (#3366ff)"));
+    if (d.image) {
+      out.push(field("Image fit", select(`view-image-fit-${i}`, [{ value: "cover", label: "Cover" }, { value: "contain", label: "Contain" }], d.imageFit, (f) =>
+        set({ op: "setView", index: i, key: "imageFit", value: f === "contain" ? "contain" : undefined }))));
+      out.push(field("Aspect ratio", slider(`view-image-ratio-${i}`, d.imageAspectRatio, 0.25, 2.5, 0.05, (n) => n.toFixed(2), (n) =>
+        set({ op: "setView", index: i, key: "imageAspectRatio", value: n === 1 ? undefined : n })), "Image height ÷ width; 1 is square"));
+    }
+  }
+  return out;
 }
 
 /** The window behind the result count: how many results the view shows at most. */
@@ -884,6 +930,11 @@ function editsSelection(row: Row): boolean {
   return isSelected(row.uri) && selectionCount() > 1;
 }
 
+/** A table cell's content, in a box that a taller row height lets wrap onto more lines. */
+function cellBox(c: Column, row: Row): HTMLElement {
+  return el("div", { class: "cell-box" }, ...cellContent(c, row));
+}
+
 /**
  * Shows the new value at once, then has the host write it. An empty value
  * removes the property. In a selected row the change goes to every selected
@@ -986,7 +1037,7 @@ function startEdit(rowIndex: number, colIndex: number): void {
   if (!row || !c || !td || td.querySelector(".cell-input")) return;
   if (c.type === "checkbox") {
     commitValue(row, c, row.cells[c.id] !== true);
-    td.replaceChildren(...cellContent(c, row));
+    td.replaceChildren(cellBox(c, row));
     return;
   }
 
@@ -1078,7 +1129,7 @@ function startEdit(rowIndex: number, colIndex: number): void {
       }
     }
     td.classList.remove("editing");
-    td.replaceChildren(...cellContent(c, row));
+    td.replaceChildren(cellBox(c, row));
     const target = move && nextEditable(rowIndex, colIndex, move);
     if (target) startEdit(...target);
     else if (renderPending) render();
@@ -1194,7 +1245,7 @@ function table(): HTMLElement {
     };
     const tr = el("tr", { class: isSelected(row.uri) ? "selected" : "", title: row.readOnly }, el("td", { class: "check" }, box));
     r.columns.forEach((c, ci) => {
-      const td = el("td", { "data-r": String(ri), "data-c": String(ci) }, ...cellContent(c, row));
+      const td = el("td", { "data-r": String(ri), "data-c": String(ci) }, cellBox(c, row));
       if (c.id === "file.name" || c.id === "file.path" || c.id === "file.basename") {
         td.className = "file";
         td.onclick = () => send({ type: "open", uri: row.uri });
@@ -1208,7 +1259,7 @@ function table(): HTMLElement {
     });
     body.append(tr);
   }
-  return el("div", {}, ...lists, el("table", {}, el("thead", {}, head), body));
+  return el("div", {}, ...lists, el("table", { class: `rh-${r.view.display.rowHeight}` }, el("thead", {}, head), body));
 }
 
 // --- cards, list and kanban ------------------------------------------------------
@@ -1217,7 +1268,11 @@ function table(): HTMLElement {
 function content(): HTMLElement {
   const r = result!;
   if (r.rows.length === 0 || r.view.type === "table" || !LAYOUTS.some((l) => l.type === r.view.type)) return table();
-  if (r.view.type === "cards") return el("div", { class: "cards" }, ...r.rows.map((row) => card(row)));
+  if (r.view.type === "cards") {
+    const grid = el("div", { class: "cards" }, ...r.rows.map((row) => card(row)));
+    grid.style.gridTemplateColumns = `repeat(auto-fill, minmax(${r.view.display.cardSize}px, 1fr))`;
+    return grid;
+  }
   if (r.view.type === "list") {
     return el("ul", { class: "list" }, ...grouped(r.rows).map((item) =>
       item.kind === "heading" ? el("li", { class: `list-heading level-${item.level}` }, headingLabel(item)) : listItem(item.row)));
@@ -1313,8 +1368,21 @@ function titleLink(row: Row): HTMLElement {
   return t;
 }
 
+/** The cover at the top of a card: an image, or a block of color. */
+function cover(row: Row): HTMLElement[] {
+  const d = result!.view.display;
+  if (!d.image) return [];
+  const box = el("div", { class: `card-cover fit-${d.imageFit}` });
+  box.style.aspectRatio = `1 / ${d.imageAspectRatio}`;
+  if (row.cover?.color) box.style.background = row.cover.color;
+  else if (row.cover?.src) box.append(el("img", { src: row.cover.src, alt: "", loading: "lazy" }));
+  else box.classList.add("empty");
+  return [box];
+}
+
 function card(row: Row, skip?: string): HTMLElement {
   return el("div", { class: isSelected(row.uri) ? "card selected" : "card", title: row.readOnly },
+    ...cover(row),
     el("div", { class: "card-head" }, titleLink(row), selectBox(row)),
     ...fieldsOf(row, skip).map((c) => el("div", { class: "card-field" }, el("span", { class: "card-label" }, c.label), el("span", { class: "card-value" }, ...cellContent(c, row)))),
   );

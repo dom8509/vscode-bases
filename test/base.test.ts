@@ -56,7 +56,7 @@ describe("views", () => {
 
   it("starts a new base as one table of every file by name", () => {
     const view = computeView(parseBase(NEW_BASE), records, { viewIndex: 0 });
-    expect(view.views).toEqual([{ name: "Table", type: "table" }]);
+    expect(view.views).toMatchObject([{ name: "Table", type: "table" }]);
     expect(view.rows).toHaveLength(5);
     expect(view.rows[0]!.cells).toEqual({ "file.name": "app.yaml" });
   });
@@ -267,5 +267,46 @@ describe("group levels in the file", () => {
     const view = computeView(base, records, { viewIndex: 0 });
     expect(view.view.groupBy?.separator).toBe("/");
     expect(view.rows.map((r) => r.path)).toEqual(["deploy/app.yaml", "notes/idea.md", "projects/alpha.md", "projects/beta.md", "projects/gamma.md"]);
+  });
+});
+
+describe("display options", () => {
+  it("reads Obsidian's keys, with its defaults", () => {
+    const base = parseBase(`
+views:
+  - type: cards
+    name: Cards
+    image: note.cover
+    imageAspectRatio: 1.35
+    imageFit: ""
+    cardSize: 170
+  - type: table
+    name: Table
+    rowHeight: extra tall
+  - type: table
+    name: Plain
+`);
+    const cards = computeView(base, records, { viewIndex: 0 });
+    expect(cards.view.display).toEqual({ rowHeight: "short", cardSize: 170, image: "note.cover", imageFit: "cover", imageAspectRatio: 1.35 });
+    expect(cards.views[1]!.display.rowHeight).toBe("extra-tall");
+    expect(cards.views[2]!.display).toEqual({ rowHeight: "short", cardSize: 200, image: undefined, imageFit: "cover", imageAspectRatio: 1 });
+  });
+
+  it("carries the image property's values in the cells, without making it a column", () => {
+    const withCover = [...records, record("projects/delta.md", "---\ncover: \"[[delta.png]]\"\ntags: [project]\n---\n")];
+    const view = computeView(parseBase("views:\n  - type: cards\n    name: C\n    image: cover\n    order: [file.name]\n"), withCover, { viewIndex: 0 });
+    expect(view.columns.map((c) => c.id)).toEqual(["file.name"]);
+    expect(view.rows.find((r) => r.path === "projects/delta.md")?.cells.cover).toBe("[[delta.png]]");
+  });
+
+  it("writes the keys in Obsidian's order and removes them for the defaults", () => {
+    let text = updateBase("views:\n  - type: cards\n    name: C\n    order: [file.name]\n", [
+      { op: "setView", index: 0, key: "cardSize", value: 300 },
+      { op: "setView", index: 0, key: "image", value: "note.cover" },
+      { op: "setView", index: 0, key: "imageAspectRatio", value: 1.5 },
+    ]);
+    expect(text).toBe("views:\n  - type: cards\n    name: C\n    order: [file.name]\n    image: note.cover\n    imageAspectRatio: 1.5\n    cardSize: 300\n");
+    text = updateBase(text, [{ op: "setView", index: 0, key: "cardSize", value: undefined }]);
+    expect(text).not.toContain("cardSize");
   });
 });

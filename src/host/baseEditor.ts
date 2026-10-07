@@ -5,7 +5,7 @@
 import MarkdownIt from "markdown-it";
 import * as vscode from "vscode";
 import type { Row } from "../core/base";
-import { computeView, DEFAULT_PAGE_SIZE, parseBase } from "../core/base";
+import { computeView, DEFAULT_PAGE_SIZE, parseBase, propertyRef } from "../core/base";
 import { updateBase, type BaseOp } from "../core/baseEdit";
 import { nextId } from "../core/autoId";
 import { documentMarkdown } from "../core/document";
@@ -33,6 +33,57 @@ async function withBodies(rows: Row[]): Promise<void> {
     const uri = vscode.Uri.parse(row.uri);
     const kind = sourceKind(uri.path.split(".").pop() ?? "");
     row.body = kind ? bodyText(await readText(uri).catch(() => ""), kind) : "";
+  }));
+}
+
+/** The file a cover value names: "[[a.jpg]]", "![[a.jpg|200]]", "![](a.jpg)" or a plain path. */
+function linkTarget(value: string): string | undefined {
+  const wiki = /^!?\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]$/.exec(value);
+  if (wiki) return wiki[1]!.trim();
+  const md = /^!?\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)$/.exec(value);
+  if (md) return decodeURIComponent(md[1]!);
+  return /^[^:<>|*?"]+\.[A-Za-z0-9]{2,5}$/.test(value) ? value : undefined;
+}
+
+/**
+ * Fills in each row's cover from the view's image property: a hex color, a
+ * web image, or an attachment found as Obsidian finds it — next to the note,
+ * from the workspace root, or anywhere by its name.
+ */
+async function withCovers(rows: Row[], imageId: string, webview: vscode.Webview): Promise<void> {
+  const byName = new Map<string, vscode.Uri | undefined>();
+  const exists = (u: vscode.Uri) => vscode.workspace.fs.stat(u).then(() => true, () => false);
+  await Promise.all(rows.map(async (row) => {
+    const raw = row.cells[imageId];
+    const value = (Array.isArray(raw) ? raw[0] : raw);
+    if (typeof value !== "string" || !value.trim()) return;
+    const v = value.trim();
+    if (/^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(v)) {
+      row.cover = { color: v };
+      return;
+    }
+    if (/^https?:\/\//i.test(v)) {
+      row.cover = { src: v };
+      return;
+    }
+    const target = linkTarget(v);
+    if (!target) return;
+    const note = vscode.Uri.parse(row.uri);
+    const root = vscode.workspace.getWorkspaceFolder(note)?.uri;
+    const candidates = [vscode.Uri.joinPath(note, "..", target), ...(root ? [vscode.Uri.joinPath(root, target)] : [])];
+    for (const c of candidates) {
+      if (await exists(c)) {
+        row.cover = { src: webview.asWebviewUri(c).toString() };
+        return;
+      }
+    }
+    const name = target.split("/").pop()!;
+    if (!byName.has(name)) {
+      const found = await vscode.workspace.findFiles(`**/${name.replace(/[[\]{}*?]/g, "?")}`, "**/node_modules/**", 1);
+      byName.set(name, found[0]);
+    }
+    const hit = byName.get(name);
+    if (hit) row.cover = { src: webview.asWebviewUri(hit).toString() };
   }));
 }
 
@@ -99,7 +150,7 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
 
   async resolveCustomTextEditor(document: vscode.TextDocument, panel: vscode.WebviewPanel): Promise<void> {
     const webview = panel.webview;
-    webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, "dist"), vscode.Uri.joinPath(this.context.extensionUri, "webview")] };
+    webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, "dist"), vscode.Uri.joinPath(this.context.extensionUri, "webview"), ...(vscode.workspace.workspaceFolders ?? []).map((f) => f.uri)] };
     webview.html = this.html(webview);
 
     // What the person is looking at is UI state, not part of the base file.
@@ -128,6 +179,8 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
       ui.page = result.page;
       this.log.debug(`${vscode.workspace.asRelativePath(document.uri)} › ${result.view.name}: ${result.matchCount} of ${result.total} files, page ${result.page + 1}, in ${Math.round(performance.now() - started)} ms`);
       if (result.view.type === "document") await withBodies(result.rows);
+      const image = result.view.display.image;
+      if (image && (result.view.type === "cards" || result.view.type === "kanban")) await withCovers(result.rows, propertyRef(image).id, webview);
       post({ type: "render", result, indexing: this.index.progress && { ...this.index.progress } });
     };
 
@@ -318,7 +371,7 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${n}';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; img-src ${webview.cspSource} https: data:; script-src 'nonce-${n}';">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="stylesheet" href="${style}">
 <title>Base</title>

@@ -4,6 +4,7 @@
 import { parse } from "yaml";
 import { compare, ExprError, run, toDate, truthy, type EvalContext, type FileInfo } from "./expr";
 import { compareGroups } from "./chapters";
+import { displayOf, type ViewDisplay } from "./display";
 import { toModel, type FilterGroup } from "./filterModel";
 import type { FileRecord } from "./record";
 
@@ -28,6 +29,12 @@ export interface ViewConfig {
   type: string;
   name: string;
   groupBy?: GroupBy | string;
+  // Display options, as Obsidian writes them.
+  rowHeight?: string;
+  cardSize?: number;
+  image?: string;
+  imageFit?: string;
+  imageAspectRatio?: number;
   filters?: Filter;
   order?: string[];
   sort?: SortSpec[];
@@ -123,6 +130,8 @@ export interface Row {
   cells: Record<string, unknown>;
   /** The Markdown after the frontmatter; filled in by the host for the document layout. */
   body?: string;
+  /** The cover of a card: an image the webview can load, or a color; filled in by the host. */
+  cover?: { src?: string; color?: string };
 }
 
 export interface PropertyInfo {
@@ -146,10 +155,10 @@ function groupByOf(view: ViewConfig): GroupBy | undefined {
 
 export interface ViewResult {
   /** Every view, enough to show and change its settings without switching to it. */
-  views: { name: string; type: string; groupBy?: GroupBy }[];
+  views: { name: string; type: string; groupBy?: GroupBy; display: ViewDisplay }[];
   viewIndex: number;
   /** The selected view as written in the base. */
-  view: { name: string; type: string; order: string[]; sort: SortSpec[]; limit?: number; groupBy?: GroupBy };
+  view: { name: string; type: string; order: string[]; sort: SortSpec[]; limit?: number; groupBy?: GroupBy; display: ViewDisplay };
   /** The column of the groupBy property, when the view has one; its values are in every row's cells. */
   group?: Column;
   baseFilter: FilterGroup;
@@ -259,6 +268,8 @@ export interface ComputeOptions {
   thisFile?: FileInfo;
 }
 
+export { DEFAULT_CARD_SIZE, type RowHeight, type ViewDisplay } from "./display";
+
 export const DEFAULT_PAGE_SIZE = 50;
 
 const FILE_PROPERTIES = ["name", "basename", "path", "folder", "ext", "size", "mtime", "ctime", "tags"];
@@ -299,8 +310,12 @@ export function computeView(base: BaseConfig, records: Iterable<FileRecord>, opt
   const sort = (Array.isArray(view.sort) ? view.sort : []).filter((s) => s && s.property);
   const sortRefs = sort.map((s) => ({ ref: propertyRef(s.property), desc: String(s.direction).toUpperCase() === "DESC" }));
   const groupRef = groupBy && propertyRef(groupBy.property);
-  // The group's values travel with the cells, also when it is not a column.
-  const cellRefs = groupRef && !refs.some((r) => r.id === groupRef.id) ? [...refs, groupRef] : refs;
+  const display = displayOf(view);
+  // The group's and the cover image's values travel with the cells, also when they are no column.
+  const cellRefs = [...refs];
+  for (const extra of [groupRef, display.image ? propertyRef(display.image) : undefined]) {
+    if (extra && !cellRefs.some((r) => r.id === extra.id)) cellRefs.push(extra);
+  }
   // Grouped rows stay together, chapters in reading order; a board has its own lanes.
   const groupFirst = groupRef && view.type !== "kanban" ? groupRef : undefined;
   const groupValue = (ctx: EvalContext): unknown => {
@@ -388,9 +403,9 @@ export function computeView(base: BaseConfig, records: Iterable<FileRecord>, opt
   ].map((ref) => ({ id: ref.id, label: label(base, ref), ns: ref.ns }));
 
   return {
-    views: base.views.map((v) => ({ name: v.name, type: v.type, ...(groupByOf(v) ? { groupBy: groupByOf(v) } : {}) })),
+    views: base.views.map((v) => ({ name: v.name, type: v.type, ...(groupByOf(v) ? { groupBy: groupByOf(v) } : {}), display: displayOf(v) })),
     viewIndex,
-    view: { name: view.name, type: view.type, order, sort, limit: typeof view.limit === "number" ? view.limit : undefined, groupBy },
+    view: { name: view.name, type: view.type, order, sort, limit: typeof view.limit === "number" ? view.limit : undefined, groupBy, display },
     group: groupRef && columnOf(groupRef),
     baseFilter: toModel(base.filters),
     viewFilter: toModel(view.filters),
