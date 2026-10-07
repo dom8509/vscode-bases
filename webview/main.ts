@@ -420,6 +420,11 @@ function propertiesPanel(): HTMLElement {
 
 // --- toolbar, bulk bar, table, pager ------------------------------------------------
 
+function closePanel(): void {
+  panel = undefined;
+  render();
+}
+
 function togglePanel(p: Panel): void {
   panel = panel === p ? undefined : p;
   render();
@@ -670,6 +675,8 @@ function startEdit(rowIndex: number, colIndex: number): void {
       e.preventDefault();
       finish(true, e.shiftKey ? "left" : "right");
     } else if (e.key === "Escape") {
+      // Handled here: the same Escape must not also close an open panel.
+      e.preventDefault();
       finish(false);
     }
   });
@@ -779,10 +786,11 @@ function render(): void {
   const parts: HTMLElement[] = [];
   if (result) {
     parts.push(toolbar());
-    if (panel === "view") parts.push(viewPanel());
-    if (panel === "sort") parts.push(sortPanel());
-    if (panel === "filter") parts.push(filterPanel());
-    if (panel === "properties") parts.push(propertiesPanel());
+    const open = panel === "view" ? viewPanel() : panel === "sort" ? sortPanel() : panel === "filter" ? filterPanel() : panel === "properties" ? propertiesPanel() : undefined;
+    if (open) {
+      open.prepend(button("×", closePanel, "icon panel-close", "Close (Escape)"));
+      parts.push(open);
+    }
   }
   if (error) parts.push(el("div", { class: "banner error" }, error));
   for (const e of result?.errors ?? []) parts.push(el("div", { class: "banner warn" }, e));
@@ -840,6 +848,11 @@ window.addEventListener("message", (event: MessageEvent<ToWebview>) => {
 document.addEventListener("mousedown", (e) => {
   if (viewMenuOpen && !(e.target as HTMLElement).closest(".view-switcher")) closeViewMenu();
 });
+// Escape closes an open panel, unless it is cancelling a cell edit or the view menu.
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !e.defaultPrevented && !viewMenuOpen && panel) closePanel();
+});
+
 document.addEventListener("keydown", (e) => {
   if (!viewMenuOpen) return;
   if (e.key === "Escape") {

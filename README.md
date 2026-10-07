@@ -24,6 +24,8 @@ at once.
   operators do not cover. A filter without its value does not filter yet.
 - **Sort:** add sort rules in the *Sort* menu, or click a column header
   (ascending, descending, off).
+- **Closing a menu:** the × at its top right, Escape, or its toolbar button
+  again.
 - **Search and pages:** the search box searches the cells of the current
   view. The table shows 50 rows per page (`bases.pageSize`); the pager below
   changes page and page size.
