@@ -6,6 +6,7 @@ import { compare, ExprError, run, toDate, truthy, type EvalContext, type FileInf
 import { compareGroups } from "./chapters";
 import { displayOf, type ViewDisplay } from "./display";
 import { toModel, type FilterGroup } from "./filterModel";
+import type { LinkGraph } from "./links";
 import type { FileRecord } from "./record";
 
 export type Filter = string | { and: Filter[] } | { or: Filter[] } | { not: Filter[] };
@@ -83,6 +84,8 @@ export interface Column {
   type: ValueType;
   /** Values already used in this column, for autocomplete; editable columns only. */
   suggestions?: string[];
+  /** The values are paths of files (file.links, file.backlinks): each opens its file. */
+  links?: boolean;
 }
 
 // Properties Obsidian treats as lists even before they hold a value.
@@ -186,7 +189,7 @@ export interface ViewResult {
   errors: string[];
 }
 
-function context(rec: FileRecord, base: BaseConfig, now: Date, thisFile: FileInfo | undefined, errors: Set<string>): EvalContext {
+function context(rec: FileRecord, base: BaseConfig, now: Date, thisFile: FileInfo | undefined, links: LinkGraph | undefined, errors: Set<string>): EvalContext {
   const formulaCache = new Map<string, unknown>();
   const evaluating = new Set<string>();
   const ctx: EvalContext = {
@@ -195,6 +198,7 @@ function context(rec: FileRecord, base: BaseConfig, now: Date, thisFile: FileInf
     tags: rec.tags,
     now,
     thisFile,
+    links,
     formula: (name) => {
       if (formulaCache.has(name)) return formulaCache.get(name);
       const src = base.formulas[name];
@@ -266,6 +270,8 @@ export interface ComputeOptions {
   collectUris?: boolean;
   now?: Date;
   thisFile?: FileInfo;
+  /** Links between files, when the workspace has a link database. */
+  links?: LinkGraph;
 }
 
 export { DEFAULT_CARD_SIZE, type RowHeight, type ViewDisplay } from "./display";
@@ -294,7 +300,7 @@ export function computeView(base: BaseConfig, records: Iterable<FileRecord>, opt
   const all = [...records];
   const hits: { rec: FileRecord; ctx: EvalContext }[] = [];
   for (const rec of all) {
-    const ctx = context(rec, base, now, opts.thisFile, errors);
+    const ctx = context(rec, base, now, opts.thisFile, opts.links, errors);
     if (matches(base.filters, ctx, errors) && matches(view.filters, ctx, errors)) hits.push({ rec, ctx });
   }
 
@@ -391,13 +397,18 @@ export function computeView(base: BaseConfig, records: Iterable<FileRecord>, opt
   }));
 
   const columnOf = (ref: PropertyRef): Column => {
+    if (ref.ns === "file" && /^(?:back)?links\b/.test(ref.name)) return { id: ref.id, label: label(base, ref), editable: false, type: "list", links: true };
     if (ref.ns !== "note") return { id: ref.id, label: label(base, ref), editable: false, type: "text" };
     const values = hits.map((h) => h.rec.properties[ref.name]);
     return { id: ref.id, label: label(base, ref), editable: true, type: inferType(ref.name, values), suggestions: suggestionsOf(values) };
   };
   const columns: Column[] = refs.map(columnOf);
+  // With a link database: all links both ways, and each type of link on its own.
+  const linkProperties = opts.links && !opts.links.error
+    ? ["links", "backlinks", ...opts.links.types.flatMap((t) => [`links(${JSON.stringify(t)})`, `backlinks(${JSON.stringify(t)})`])]
+    : [];
   const properties: PropertyInfo[] = [
-    ...FILE_PROPERTIES.map((n) => propertyRef(`file.${n}`)),
+    ...[...FILE_PROPERTIES, ...linkProperties].map((n) => propertyRef(`file.${n}`)),
     ...propertyNames.map(propertyRef),
     ...Object.keys(base.formulas).map((n) => propertyRef(`formula.${n}`)),
   ].map((ref) => ({ id: ref.id, label: label(base, ref), ns: ref.ns }));

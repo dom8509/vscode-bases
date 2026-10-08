@@ -164,6 +164,9 @@ naming what is unsupported, rather than silently matching nothing.
 - **File:** `file.name`, `file.basename`, `file.path`, `file.folder`,
   `file.ext`, `file.size`, `file.mtime`, `file.ctime`, `file.tags`,
   `file.hasTag(...)`, `file.inFolder(...)`, `file.hasProperty(...)`
+- **Links** (with a [link database](#links-from-a-database)): `file.links`,
+  `file.backlinks`, `file.links("type", ...)`, `file.backlinks("type", ...)`,
+  `file.hasLink(target)`, `file.hasLink(target, "type")`
 - **Operators:** `== != < <= > >= && || ! + - * / %`, parentheses, list literals
 - **Functions:** `if`, `now`, `today`, `date`, `number`, `list`, `min`, `max`
 - **Methods:** `contains`, `containsAll`, `containsAny`, `startsWith`,
@@ -173,7 +176,7 @@ naming what is unsupported, rather than silently matching nothing.
   `month`, `day`
 - **Dates:** `now() - "1 week"`, `date(due) < today()`
 
-Not yet: links (`file.hasLink`, `link()`), inline `#tags` in the note body,
+Not yet: links from the text of a note (`[[...]]` in the body), `link()`, inline `#tags` in the note body,
 summaries, the map view (it shows as a table), and Obsidian's `groupOrder`.
 
 ### View options
@@ -193,6 +196,39 @@ then anywhere in the workspace by its name.
 
 Additions of this extension: the `document` layout, and `groupBy.separator`
 and `groupBy.order` (lane order on a board).
+
+### Links from a database
+
+Links between files come from a SQLite database the project already keeps,
+not from the text of the notes. Every project's database looks different, so
+a query says where the links are:
+
+```jsonc
+// .vscode/settings.json
+{
+  "bases.links.database": "build/index.sqlite",
+  "bases.links.query": "SELECT from_file AS source, to_file AS target, kind AS type FROM refs"
+}
+```
+
+- The query returns one row per link: `source` and `target`, and `type`
+  when links have types (leave it out when they do not). Columns without
+  these names count by position: first source, second target, third type.
+- A path in the database is matched to a file: from the workspace folder,
+  from the database's folder, with or without `.md`, or by its name alone
+  when only one file has that name. `[[REQ-001]]` works too.
+- In a base: `file.links` are the files a note links to, `file.backlinks`
+  the files that link to it. With types, `file.backlinks("tests")` takes
+  only those links. They are lists, so `file.backlinks("tests").isEmpty()`
+  finds untested requirements, and `file.links.length` counts links. As a
+  column they show as chips; a click opens the file. The property list
+  offers `file.links` and `file.backlinks`, also once per link type.
+- The database is read into memory and queried there: the file is never
+  changed. It is read again when it changes, or when the settings change.
+  A database in WAL mode shows changes once SQLite has written them into the
+  database file (at a checkpoint).
+- Errors (no such table, a wrong column) show in the base and in the
+  *Bases* output channel.
 
 ## Large workspaces
 
@@ -225,6 +261,8 @@ To index less, narrow `bases.include` or add folders to `bases.exclude`.
 | `bases.exclude` | `**/node_modules/**`, `**/.git/**` | excluded on top of `files.exclude` |
 | `bases.confirmBulkEdits` | `true` | ask before an edit to more than one file, with a diff on request |
 | `bases.pageSize` | `50` | rows per page |
+| `bases.links.database` | empty | SQLite database with the links between files; empty: no links |
+| `bases.links.query` | `SELECT source, target, type FROM links` | SQL that returns one row per link |
 
 ## Development
 

@@ -99,6 +99,17 @@
           "minimum": 1,
           "description": "Rows per page in a base's table."
         },
+        "bases.links.database": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "SQLite database that holds the links between files, relative to the workspace folder or absolute. Empty: no links. The database is only read, never changed. With it, a base can use `file.links`, `file.backlinks` and `file.hasLink(…)`."
+        },
+        "bases.links.query": {
+          "type": "string",
+          "default": "SELECT source, target, type FROM links",
+          "editPresentation": "multilineText",
+          "markdownDescription": "SQL that returns one row per link from `#bases.links.database#`: the columns `source` and `target` (paths of files, relative to the workspace folder or to the database's folder, or just a file name), and `type` when links have types. Rename columns with `AS`, e.g. `SELECT from_file AS source, to_file AS target, kind AS type FROM refs`."
+        },
         "bases.newNoteFolder": {
           "type": "string",
           "default": "",
@@ -165,11 +176,13 @@
   "dependencies": {
     "fflate": "^0.8.3",
     "markdown-it": "^14.3.2",
+    "sql.js": "^1.13.0",
     "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@types/markdown-it": "^14.2.0",
     "@types/node": "^22.0.0",
+    "@types/sql.js": "^1.4.11",
     "@types/vscode": "~1.95.0",
     "@vscode/test-electron": "^3.1.0",
     "@vscode/vsce": "^3.0.0",

@@ -17,6 +17,7 @@ import { parseInputValue, textChange, type PropertyEdit } from "../core/writer";
 import type { EditTarget, FromWebview, ToWebview, UiEdit, UiState } from "../protocol";
 import { applyPropertyEdits } from "./edits";
 import { fileInfo, type WorkspaceIndex } from "./indexer";
+import type { LinkSource } from "./links";
 
 export const VIEW_TYPE = "bases.editor";
 
@@ -145,6 +146,7 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly index: WorkspaceIndex,
+    private readonly links: LinkSource,
     private readonly log: vscode.LogOutputChannel,
   ) {}
 
@@ -174,7 +176,7 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
       }
       await this.index.ensureReady();
       const started = performance.now();
-      const result = computeView(base, this.index.all(), { ...ui, thisFile: await thisFile() });
+      const result = computeView(base, this.index.all(), { ...ui, thisFile: await thisFile(), links: this.links.links() });
       ui.viewIndex = result.viewIndex;
       ui.page = result.page;
       this.log.debug(`${vscode.workspace.asRelativePath(document.uri)} › ${result.view.name}: ${result.matchCount} of ${result.total} files, page ${result.page + 1}, in ${Math.round(performance.now() - started)} ms`);
@@ -192,7 +194,7 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
     /** The files an edit applies to; "all matching" is resolved against the view as it is now. */
     const resolveTarget = async (target: EditTarget): Promise<vscode.Uri[]> => {
       if ("uris" in target) return target.uris.map((u) => vscode.Uri.parse(u));
-      const result = computeView(parseBase(document.getText()), this.index.all(), { ...ui, thisFile: await thisFile(), collectUris: true });
+      const result = computeView(parseBase(document.getText()), this.index.all(), { ...ui, thisFile: await thisFile(), collectUris: true, links: this.links.links() });
       const except = new Set(target.except);
       return (result.allUris ?? []).filter((u) => !except.has(u)).map((u) => vscode.Uri.parse(u));
     };
@@ -230,6 +232,7 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
         if (e.document.uri.toString() === document.uri.toString()) scheduleRender();
       }),
       this.index.onDidChange(scheduleRender),
+      this.links.onDidChange(scheduleRender),
       webview.onDidReceiveMessage(async (msg: FromWebview) => {
         switch (msg.type) {
           case "ready":
@@ -257,11 +260,18 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
             }
             await vscode.window.showTextDocument(vscode.Uri.parse(msg.uri), { preview: true, viewColumn: vscode.ViewColumn.Beside });
             break;
+          case "openPath": {
+            // A link in a links column: a workspace path.
+            const hit = [...this.index.all()].find((r) => r.file.path === msg.path);
+            if (hit) await vscode.window.showTextDocument(vscode.Uri.parse(hit.uri), { preview: true, viewColumn: vscode.ViewColumn.Beside });
+            else post({ type: "notice", message: `No file ${msg.path} in the workspace.` });
+            break;
+          }
           case "newNote":
             await this.createNote(document, ui.viewIndex, post);
             break;
           case "export": {
-            const all = computeView(parseBase(document.getText()), this.index.all(), { ...ui, page: 0, pageSize: Number.MAX_SAFE_INTEGER, thisFile: await thisFile() });
+            const all = computeView(parseBase(document.getText()), this.index.all(), { ...ui, page: 0, pageSize: Number.MAX_SAFE_INTEGER, thisFile: await thisFile(), links: this.links.links() });
             const files = `${all.rows.length} ${all.rows.length === 1 ? "row" : "rows"}`;
             // A grouped view keeps its groups as the first column, so a spreadsheet can filter by them.
             const g = all.group;
@@ -327,7 +337,7 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
     const base = parseBase(document.getText());
     const note = newNote(base, viewIndex);
     // A column of IDs like REQ-041 gives the new note the next one (and its name); "id" is looked at first.
-    const all = computeView(base, this.index.all(), { viewIndex, page: 0, pageSize: Number.MAX_SAFE_INTEGER });
+    const all = computeView(base, this.index.all(), { viewIndex, page: 0, pageSize: Number.MAX_SAFE_INTEGER, links: this.links.links() });
     const candidates = all.columns.filter((c) => c.editable).sort((a, b) => Number(b.id.toLowerCase() === "id") - Number(a.id.toLowerCase() === "id"));
     let id: string | undefined;
     for (const c of candidates) {
