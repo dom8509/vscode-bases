@@ -921,6 +921,16 @@ function cellContent(c: Column, row: Row): (Node | string)[] {
     };
     return [box];
   }
+  if (c.links && Array.isArray(v)) {
+    return v.map((x) => {
+      const chip = el("span", { class: "chip link", title: `Open ${display(x)}` }, display(x));
+      chip.onclick = (e) => {
+        e.stopPropagation();
+        send({ type: "openPath", path: String(x) });
+      };
+      return chip;
+    });
+  }
   if (c.type === "list" && Array.isArray(v)) return v.map((x) => el("span", { class: "chip" }, display(x)));
   return [display(v)];
 }

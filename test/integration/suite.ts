@@ -5,7 +5,9 @@ import * as assert from "node:assert/strict";
 import * as vscode from "vscode";
 import { computeView, parseBase } from "../../src/core/base";
 import { applyPropertyEdits } from "../../src/host/edits";
+import initSqlJs from "sql.js";
 import { WorkspaceIndex } from "../../src/host/indexer";
+import { LinkSource } from "../../src/host/links";
 
 async function read(uri: vscode.Uri): Promise<string> {
   return new TextDecoder().decode(await vscode.workspace.fs.readFile(uri));
@@ -194,6 +196,46 @@ const cacheTests: [string, (ws: vscode.Uri) => Promise<void>][] = [
       assert.deepEqual({ read: third.lastScan?.read, removed: third.lastScan?.removed }, { read: unsaved + 1, removed: 1 });
       assert.equal(third.get(meeting)?.properties.type, "retro");
       third.dispose();
+    },
+  ],
+  [
+    "reads links from the project's SQLite database, and again when it changes",
+    async (ws) => {
+      const index = new WorkspaceIndex(undefined, log);
+      await index.whenScanned();
+      const ext = vscode.extensions.getExtension("dom8509.vscode-bases")!.extensionUri;
+      const SQL = await initSqlJs({ locateFile: (f) => vscode.Uri.joinPath(ext, "dist", f).fsPath });
+      const dbFile = vscode.Uri.joinPath(ws, "db/project.sqlite");
+      const write = async (rows: string) => {
+        const db = new SQL.Database();
+        db.run(`CREATE TABLE refs (from_file TEXT, to_file TEXT, kind TEXT); INSERT INTO refs VALUES ${rows};`);
+        await vscode.workspace.fs.writeFile(dbFile, db.export());
+        db.close();
+      };
+      await write("('lastenheft/REQ-002.md', 'REQ-001', 'refines'), ('../notes/meeting.md', 'lastenheft/REQ-001.md', 'mentions')");
+      const config = vscode.workspace.getConfiguration("bases");
+      await config.update("links.query", "SELECT from_file AS source, to_file AS target, kind AS type FROM refs", vscode.ConfigurationTarget.Workspace);
+      await config.update("links.database", "db/project.sqlite", vscode.ConfigurationTarget.Workspace);
+      const links = new LinkSource(ext, index, log);
+      try {
+        const backlinks = () => links.links()?.backlinksOf("lastenheft/REQ-001.md") ?? [];
+        await waitFor("links read", () => backlinks().length === 2);
+        assert.deepEqual(backlinks(), ["lastenheft/REQ-002.md", "notes/meeting.md"]);
+        const base = parseBase(`views:\n  - type: table\n    filters: 'file.backlinks("refines").length > 0'\n    order: [file.name, file.backlinks]\n`);
+        const view = computeView(base, index.all(), { viewIndex: 0, links: links.links() });
+        assert.deepEqual(view.errors, []);
+        assert.deepEqual(view.rows.map((r) => r.path), ["lastenheft/REQ-001.md"]);
+
+        await write("('lastenheft/REQ-003.md', 'REQ-001.md', 'refines')");
+        await waitFor("links read again", () => backlinks().length === 1);
+        assert.deepEqual(backlinks(), ["lastenheft/REQ-003.md"]);
+      } finally {
+        links.dispose();
+        index.dispose();
+        await config.update("links.database", undefined, vscode.ConfigurationTarget.Workspace);
+        await config.update("links.query", undefined, vscode.ConfigurationTarget.Workspace);
+        await vscode.workspace.fs.delete(vscode.Uri.joinPath(ws, "db"), { recursive: true });
+      }
     },
   ],
 ];

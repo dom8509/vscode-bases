@@ -1,3 +1,4 @@
+import { copyFileSync, mkdirSync } from "node:fs";
 import * as esbuild from "esbuild";
 
 const watch = process.argv.includes("--watch");
@@ -26,6 +27,10 @@ if (tests) {
     { entryPoints: ["test/integration/perf.ts"], outfile: "dist/test/perf.js", platform: "node", format: "cjs", external: ["vscode"] },
   );
 }
+
+// SQLite as WebAssembly, for the link database: sql.js loads it next to the extension.
+mkdirSync("dist", { recursive: true });
+copyFileSync("node_modules/sql.js/dist/sql-wasm.wasm", "dist/sql-wasm.wasm");
 
 for (const options of builds) {
   const ctx = await esbuild.context({

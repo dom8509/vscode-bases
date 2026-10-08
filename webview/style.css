@@ -526,6 +526,14 @@ td.type-checkbox {
   background: var(--vscode-badge-background);
 }
 
+.chip.link {
+  cursor: pointer;
+}
+
+.chip.link:hover {
+  text-decoration: underline;
+}
+
 .chip-x {
   cursor: pointer;
   opacity: 0.7;

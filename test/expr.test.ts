@@ -69,7 +69,7 @@ describe("expressions", () => {
   });
 
   it("names what it does not support", () => {
-    expect(() => run("file.hasLink(x)", ctx())).toThrow(/Unsupported: file.hasLink/);
+    expect(() => run("file.asLink(x)", ctx())).toThrow(/Unsupported: file.asLink/);
     expect(() => run("link(x)", ctx())).toThrow(ExprError);
     expect(() => run("a ==", ctx())).toThrow(/Unexpected end/);
   });

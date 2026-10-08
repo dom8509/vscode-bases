@@ -3,6 +3,8 @@
 // methods. Anything outside the subset raises an ExprError naming it, so a base
 // that uses it shows what is missing instead of silently matching nothing.
 
+import type { LinkGraph } from "./links";
+
 export class ExprError extends Error {}
 
 type Node =
@@ -169,6 +171,8 @@ export interface EvalContext {
   formula: (name: string) => unknown;
   thisFile?: FileInfo;
   now: Date;
+  /** Links between files, from the database in `bases.links.database`; undefined when none is set. */
+  links?: LinkGraph;
 }
 
 /** Function value produced by member access, so `x.contains` can be called. */
@@ -272,8 +276,39 @@ function normTag(t: unknown): string {
   return String(t).replace(/^#/, "").toLowerCase();
 }
 
+function linkGraph(ctx: EvalContext, name: string): LinkGraph {
+  if (!ctx.links) throw new ExprError(`file.${name} needs a link database: set bases.links.database`);
+  if (ctx.links.error) throw new ExprError(`file.${name}: ${ctx.links.error}`);
+  return ctx.links;
+}
+
+/** The types a link function was given: `file.links("a", "b")` or `file.links(["a", "b"])`. */
+function linkTypes(args: unknown[]): string[] {
+  return args.flatMap((a) => asList(a)).map(String);
+}
+
+/** `file.links(...)` and `file.backlinks(...)`: only links of the given types. */
+function fileCall(file: FileInfo, ctx: EvalContext, name: string, args: unknown[]): unknown {
+  switch (name) {
+    case "links": return linkGraph(ctx, name).linksOf(file.path, linkTypes(args));
+    case "backlinks": return linkGraph(ctx, name).backlinksOf(file.path, linkTypes(args));
+  }
+  const fn = fileMember(file, ctx, name);
+  if (!(fn instanceof Fn)) throw new ExprError("Not a function");
+  return fn.impl(args);
+}
+
 function fileMember(file: FileInfo, ctx: EvalContext, name: string): unknown {
   switch (name) {
+    case "links": return linkGraph(ctx, name).linksOf(file.path);
+    case "backlinks": return linkGraph(ctx, name).backlinksOf(file.path);
+    case "hasLink":
+      // file.hasLink(target) or file.hasLink(target, "type"); the target is a path, a name or this.file.
+      return new Fn("file.hasLink", ([target, ...types]) => {
+        const graph = linkGraph(ctx, name);
+        const raw = target !== null && typeof target === "object" && "path" in target ? String((target as FileInfo).path) : String(target ?? "");
+        return graph.linksOf(file.path, linkTypes(types)).includes(graph.resolve(raw));
+      });
     case "name": case "basename": case "path": case "ext": case "folder": case "size":
       return file[name];
     case "mtime": return new Date(file.mtime);
@@ -454,6 +489,10 @@ export function evaluate(node: Node, ctx: EvalContext): unknown {
       return undefined;
     }
     case "call": {
+      // file.links and file.backlinks are lists, and functions that take link types.
+      if (node.callee.t === "member" && node.callee.obj.t === "id" && node.callee.obj.name === "file") {
+        return fileCall(ctx.file, ctx, node.callee.name, node.args.map(ev));
+      }
       const fn = node.callee.t === "id" ? globalFunction(node.callee.name, ctx) : ev(node.callee);
       if (!(fn instanceof Fn)) throw new ExprError("Not a function");
       return fn.impl(node.args.map(ev));

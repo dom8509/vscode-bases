@@ -128,9 +128,9 @@ views:
   });
 
   it("reports an unsupported filter instead of failing", () => {
-    const view = computeView(parseBase("filters: file.hasLink(this)"), records, { viewIndex: 0 });
+    const view = computeView(parseBase("filters: file.asLink()"), records, { viewIndex: 0 });
     expect(view.rows).toHaveLength(0);
-    expect(view.errors[0]).toMatch(/Unsupported: file.hasLink/);
+    expect(view.errors[0]).toMatch(/Unsupported: file.asLink/);
   });
 });
 

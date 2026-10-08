@@ -1,6 +1,7 @@
 **
 !dist/extension.js
 !dist/webview.js
+!dist/sql-wasm.wasm
 !webview/style.css
 !media/icon.png
 !package.json

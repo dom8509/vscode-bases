@@ -3,6 +3,7 @@ import { NEW_BASE } from "./core/baseEdit";
 import { BaseEditorProvider, reopenWith, VIEW_TYPE } from "./host/baseEditor";
 import { registerPreviewProvider } from "./host/edits";
 import { WorkspaceIndex } from "./host/indexer";
+import { LinkSource } from "./host/links";
 
 let index: WorkspaceIndex | undefined;
 
@@ -12,11 +13,13 @@ export function activate(context: vscode.ExtensionContext): void {
   // Activated because the workspace has a .base file: index now, so the first
   // base that opens finds the work done.
   void index.ensureReady();
+  const links = new LinkSource(context.extensionUri, index, log);
   context.subscriptions.push(
     log,
     index,
+    links,
     registerPreviewProvider(),
-    vscode.window.registerCustomEditorProvider(VIEW_TYPE, new BaseEditorProvider(context, index, log), {
+    vscode.window.registerCustomEditorProvider(VIEW_TYPE, new BaseEditorProvider(context, index, links, log), {
       webviewOptions: { retainContextWhenHidden: true },
     }),
     vscode.commands.registerCommand("bases.newBase", async (target?: vscode.Uri) => newBase(target)),

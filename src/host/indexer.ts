@@ -52,6 +52,7 @@ export class WorkspaceIndex implements vscode.Disposable {
   private timer: NodeJS.Timeout | undefined;
   private saveTimer: NodeJS.Timeout | undefined;
   private lastFire = 0;
+  private paths = 0;
 
   /** Set while a scan runs. */
   progress: IndexProgress | undefined;
@@ -86,9 +87,23 @@ export class WorkspaceIndex implements vscode.Disposable {
     return this.records.get(uri.toString());
   }
 
+  /** Changes whenever a file is added or removed, not when one is only edited. */
+  get pathsVersion(): number {
+    return this.paths;
+  }
+
+  private setRecord(key: string, record: FileRecord): void {
+    if (!this.records.has(key)) this.paths++;
+    this.records.set(key, record);
+  }
+
+  private deleteRecord(key: string): void {
+    if (this.records.delete(key)) this.paths++;
+  }
+
   private async start(): Promise<void> {
     const cached = await this.loadCache();
-    for (const [key, entry] of cached) this.records.set(key, this.fromCache(key, entry));
+    for (const [key, entry] of cached) this.setRecord(key, this.fromCache(key, entry));
     this.watch();
     // The scan runs in the background; the cached records (or none) show meanwhile.
     this.scanned = this.scan(cached).catch((e) => this.log.error(`Indexing failed: ${(e as Error).message}`));
@@ -102,7 +117,7 @@ export class WorkspaceIndex implements vscode.Disposable {
       watcher.onDidCreate((u) => this.schedule(u)),
       watcher.onDidChange((u) => this.schedule(u)),
       watcher.onDidDelete((u) => {
-        this.records.delete(u.toString());
+        this.deleteRecord(u.toString());
         this.disk.delete(u.toString());
         this.saveSoon();
         this.changed.fire();
@@ -138,14 +153,14 @@ export class WorkspaceIndex implements vscode.Disposable {
             const entry = cached.get(key);
             if (isFresh(entry, stat) && !open.get(key)?.isDirty) {
               this.disk.set(key, entry);
-              if (!this.records.has(key)) this.records.set(key, this.fromCache(key, entry));
+              if (!this.records.has(key)) this.setRecord(key, this.fromCache(key, entry));
               reused++;
             } else {
               await this.load(uri, stat);
               read++;
             }
           } catch {
-            this.records.delete(key);
+            this.deleteRecord(key);
             this.disk.delete(key);
           }
         }),
@@ -158,7 +173,7 @@ export class WorkspaceIndex implements vscode.Disposable {
     let removed = 0;
     for (const key of [...this.records.keys()]) {
       if (!seen.has(key)) {
-        this.records.delete(key);
+        this.deleteRecord(key);
         this.disk.delete(key);
         removed++;
       }
@@ -187,6 +202,7 @@ export class WorkspaceIndex implements vscode.Disposable {
   private async reset(): Promise<void> {
     for (const d of this.disposables.splice(1)) d.dispose();
     this.records.clear();
+    this.paths++;
     this.ready = undefined;
     await this.whenScanned();
   }
@@ -200,7 +216,7 @@ export class WorkspaceIndex implements vscode.Disposable {
   private async flush(): Promise<void> {
     const uris = [...this.pending].map((s) => vscode.Uri.parse(s));
     this.pending.clear();
-    await Promise.all(uris.map((u) => this.load(u).catch(() => this.records.delete(u.toString()))));
+    await Promise.all(uris.map((u) => this.load(u).catch(() => this.deleteRecord(u.toString()))));
     this.saveSoon();
     this.changed.fire();
   }
@@ -215,7 +231,7 @@ export class WorkspaceIndex implements vscode.Disposable {
     const text = doc ? doc.getText() : new TextDecoder().decode(await disk.read(uri));
     const record = parseRecord(key, info, text);
     if (!record) return;
-    this.records.set(key, record);
+    this.setRecord(key, record);
     if (doc?.isDirty) {
       // Unsaved text is not what is on disk: the next start reads the file again.
       this.disk.delete(key);
