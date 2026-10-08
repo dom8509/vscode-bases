@@ -238,6 +238,14 @@ base shows the cached rows at once, and a scan in the background reads only
 the files whose modification time or size changed. While a workspace is
 indexed for the first time, the table fills in as files are read.
 
+The cache is a snapshot of every file plus a journal of the changes since:
+a change to a few files appends a few lines, however large the workspace.
+When the journal grows past a tenth of the files (at least 1,000 lines), it
+is folded into a new snapshot, written beside the old one and renamed over
+it. A crash at any point costs at most a few files read again on the next
+start; the cache never shows a wrong value, because every file is checked
+against the disk.
+
 The *Bases* output channel logs how long indexing took and how many files
 came from the cache; at log level *Debug* (*Developer: Set Log Level…*) it
 also logs the time of every view.
