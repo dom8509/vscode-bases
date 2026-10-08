@@ -4,10 +4,15 @@
 // What parsing produced is cached per workspace. On start the cached records
 // are shown at once; a scan then stats every file and reads only the ones
 // whose mtime or size changed, and drops the ones that are gone.
+//
+// The cache is a snapshot and a journal (see core/indexCache): a change to a
+// few files appends a few lines; only a long journal is folded into a new
+// snapshot, written beside the old one and then renamed over it.
 
+import { appendFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import * as vscode from "vscode";
 import type { FileInfo } from "../core/expr";
-import { isFresh, parseCache, serializeCache, type CacheEntry } from "../core/indexCache";
+import { applyJournal, isFresh, journalHeader, journalLines, parseCache, serializeCache, shouldCompact, type CacheEntry } from "../core/indexCache";
 import { parseRecord, sourceKind, type FileRecord } from "../core/record";
 import type { IndexProgress } from "../protocol";
 import { disk, type DiskStat } from "./disk";
@@ -38,6 +43,7 @@ function excludeGlob(): string | undefined {
 
 
 const CACHE_FILE = "index-cache.json";
+const JOURNAL_FILE = "index-cache.journal";
 const BATCH = 64;
 
 export class WorkspaceIndex implements vscode.Disposable {
@@ -53,6 +59,13 @@ export class WorkspaceIndex implements vscode.Disposable {
   private saveTimer: NodeJS.Timeout | undefined;
   private lastFire = 0;
   private paths = 0;
+  // The cache on disk: the snapshot's generation, the lines in its journal,
+  // and the entries changed since the last write.
+  private generation = 0;
+  private journalCount = 0;
+  private needsSnapshot = true;
+  private readonly unsaved = new Set<string>();
+  private writing: Promise<void> = Promise.resolve();
 
   /** Set while a scan runs. */
   progress: IndexProgress | undefined;
@@ -118,7 +131,7 @@ export class WorkspaceIndex implements vscode.Disposable {
       watcher.onDidChange((u) => this.schedule(u)),
       watcher.onDidDelete((u) => {
         this.deleteRecord(u.toString());
-        this.disk.delete(u.toString());
+        this.dropDisk(u.toString());
         this.saveSoon();
         this.changed.fire();
       }),
@@ -161,7 +174,7 @@ export class WorkspaceIndex implements vscode.Disposable {
             }
           } catch {
             this.deleteRecord(key);
-            this.disk.delete(key);
+            this.dropDisk(key);
           }
         }),
       );
@@ -174,7 +187,7 @@ export class WorkspaceIndex implements vscode.Disposable {
     for (const key of [...this.records.keys()]) {
       if (!seen.has(key)) {
         this.deleteRecord(key);
-        this.disk.delete(key);
+        this.dropDisk(key);
         removed++;
       }
     }
@@ -182,7 +195,7 @@ export class WorkspaceIndex implements vscode.Disposable {
     this.progress = undefined;
     this.lastScan = { reused, read, removed };
     this.changed.fire();
-    if (read > 0 || removed > 0) this.saveSoon();
+    if (this.unsaved.size > 0 || this.needsSnapshot) this.saveSoon();
     const ms = (n: number) => `${Math.round(n)} ms`;
     this.log.info(`Indexed ${uris.length} files in ${ms(performance.now() - started)} (search ${ms(found - started)}): ${reused} from cache, ${read} read, ${removed} removed`);
   }
@@ -200,6 +213,8 @@ export class WorkspaceIndex implements vscode.Disposable {
   }
 
   private async reset(): Promise<void> {
+    // What is not saved yet goes first, so the cache read next is complete.
+    await this.saveCache();
     for (const d of this.disposables.splice(1)) d.dispose();
     this.records.clear();
     this.paths++;
@@ -234,43 +249,85 @@ export class WorkspaceIndex implements vscode.Disposable {
     this.setRecord(key, record);
     if (doc?.isDirty) {
       // Unsaved text is not what is on disk: the next start reads the file again.
-      this.disk.delete(key);
+      this.dropDisk(key);
     } else {
-      this.disk.set(key, { mtime: stat.mtime, ctime: stat.ctime, size: stat.size, kind: record.kind, properties: record.properties, tags: record.tags, readOnly: record.readOnly });
+      this.setDisk(key, { mtime: stat.mtime, ctime: stat.ctime, size: stat.size, kind: record.kind, properties: record.properties, tags: record.tags, readOnly: record.readOnly });
     }
   }
 
   // --- the cache file ---------------------------------------------------------------
 
+  /** A change to what is on disk, for the journal. */
+  private setDisk(key: string, entry: CacheEntry): void {
+    this.disk.set(key, entry);
+    this.unsaved.add(key);
+  }
+
+  private dropDisk(key: string): void {
+    if (this.disk.delete(key)) this.unsaved.add(key);
+  }
+
   private async loadCache(): Promise<Map<string, CacheEntry>> {
     if (!this.storage) return new Map();
     const started = performance.now();
-    try {
-      const bytes = await vscode.workspace.fs.readFile(vscode.Uri.joinPath(this.storage, CACHE_FILE));
-      const cache = parseCache(new TextDecoder().decode(bytes));
-      this.log.info(`Loaded ${cache.size} cached records in ${Math.round(performance.now() - started)} ms`);
-      return cache;
-    } catch {
-      return new Map();
+    const read = (name: string) => readFile(vscode.Uri.joinPath(this.storage!, name).fsPath, "utf8").catch(() => undefined);
+    const snapshot = parseCache(await read(CACHE_FILE));
+    const replay = snapshot.generation > 0 ? applyJournal(snapshot, await read(JOURNAL_FILE)) : undefined;
+    this.generation = snapshot.generation;
+    this.journalCount = replay?.lines ?? 0;
+    // Without a snapshot, with a journal of another one, or with broken lines: write a new snapshot.
+    this.needsSnapshot = snapshot.generation === 0 || (replay !== undefined && replay.lines > 0 && (!replay.applied || replay.broken > 0));
+    if (snapshot.generation > 0) {
+      const journal = replay?.applied ? `, ${replay.lines} changes from the journal${replay.broken ? ` (${replay.broken} unreadable)` : ""}` : "";
+      this.log.info(`Loaded ${snapshot.entries.size} cached records${journal} in ${Math.round(performance.now() - started)} ms`);
     }
+    return snapshot.entries;
   }
 
   private saveSoon(): void {
     clearTimeout(this.saveTimer);
-    this.saveTimer = setTimeout(() => void this.saveCache(), 3000);
+    this.saveTimer = setTimeout(() => void this.saveCache(), 1000);
   }
 
-  /** Writes the cache now; called on shutdown, and a few seconds after changes. */
-  async saveCache(): Promise<void> {
+  /** Writes what changed now; called on shutdown, and a second after changes. Writes run one after another. */
+  saveCache(): Promise<void> {
     clearTimeout(this.saveTimer);
-    if (!this.storage || this.disk.size === 0) return;
+    this.writing = this.writing.then(() => this.write());
+    return this.writing;
+  }
+
+  private async write(): Promise<void> {
+    if (!this.storage) return;
+    const dir = this.storage.fsPath;
+    const path = (name: string) => vscode.Uri.joinPath(this.storage!, name).fsPath;
     const started = performance.now();
+    const ms = () => `${Math.round(performance.now() - started)} ms`;
     try {
-      await vscode.workspace.fs.createDirectory(this.storage);
-      const text = serializeCache(this.disk);
-      await vscode.workspace.fs.writeFile(vscode.Uri.joinPath(this.storage, CACHE_FILE), new TextEncoder().encode(text));
-      this.log.debug(`Saved ${this.disk.size} records (${Math.round(text.length / 1024)} KB) in ${Math.round(performance.now() - started)} ms`);
+      if (this.needsSnapshot || shouldCompact(this.journalCount + this.unsaved.size, this.disk.size)) {
+        if (this.disk.size === 0) return;
+        // A new snapshot, written beside the old one and renamed over it, then an empty journal for it.
+        // A crash in between leaves the old snapshot, or the new one with the old journal, which it ignores.
+        const generation = this.generation + 1;
+        const text = serializeCache(this.disk, generation);
+        this.unsaved.clear();
+        await mkdir(dir, { recursive: true });
+        await writeFile(path(`${CACHE_FILE}.tmp`), text);
+        await rename(path(`${CACHE_FILE}.tmp`), path(CACHE_FILE));
+        await writeFile(path(JOURNAL_FILE), journalHeader(generation));
+        this.generation = generation;
+        this.journalCount = 0;
+        this.needsSnapshot = false;
+        this.log.debug(`Saved ${this.disk.size} records (${Math.round(text.length / 1024)} KB) in ${ms()}`);
+      } else if (this.unsaved.size > 0) {
+        const changes = [...this.unsaved].map((key): [string, CacheEntry | undefined] => [key, this.disk.get(key)]);
+        this.unsaved.clear();
+        await appendFile(path(JOURNAL_FILE), journalLines(changes));
+        this.journalCount += changes.length;
+        this.log.debug(`Saved ${changes.length} changes to the journal in ${ms()}`);
+      }
     } catch (e) {
+      // The next write starts over with a new snapshot.
+      this.needsSnapshot = true;
       this.log.warn(`Could not save the index cache: ${(e as Error).message}`);
     }
   }
