@@ -189,7 +189,7 @@ export interface ViewResult {
   errors: string[];
 }
 
-function context(rec: FileRecord, base: BaseConfig, now: Date, thisFile: FileInfo | undefined, links: LinkGraph | undefined, errors: Set<string>): EvalContext {
+function context(rec: FileRecord, base: BaseConfig, now: Date, thisFile: FileInfo | undefined, links: LinkGraph | undefined, bodies: ReadonlyMap<string, string> | undefined, errors: Set<string>): EvalContext {
   const formulaCache = new Map<string, unknown>();
   const evaluating = new Set<string>();
   const ctx: EvalContext = {
@@ -199,6 +199,7 @@ function context(rec: FileRecord, base: BaseConfig, now: Date, thisFile: FileInf
     now,
     thisFile,
     links,
+    body: () => (rec.kind === "yaml" ? "" : bodies?.get(rec.uri)),
     formula: (name) => {
       if (formulaCache.has(name)) return formulaCache.get(name);
       const src = base.formulas[name];
@@ -272,6 +273,13 @@ export interface ComputeOptions {
   thisFile?: FileInfo;
   /** Links between files, when the workspace has a link database. */
   links?: LinkGraph;
+  /** The text after the frontmatter of each Markdown file, by URI, for file.section and file.codeblock. */
+  bodies?: ReadonlyMap<string, string>;
+}
+
+/** Whether a base reads the text of its notes (file.section, file.codeblock), so the host has to load it. */
+export function usesNoteText(source: string): boolean {
+  return /\bfile\s*\.\s*(?:section|codeblock)\b/.test(source);
 }
 
 export { DEFAULT_CARD_SIZE, type RowHeight, type ViewDisplay } from "./display";
@@ -300,7 +308,7 @@ export function computeView(base: BaseConfig, records: Iterable<FileRecord>, opt
   const all = [...records];
   const hits: { rec: FileRecord; ctx: EvalContext }[] = [];
   for (const rec of all) {
-    const ctx = context(rec, base, now, opts.thisFile, opts.links, errors);
+    const ctx = context(rec, base, now, opts.thisFile, opts.links, opts.bodies, errors);
     if (matches(base.filters, ctx, errors) && matches(view.filters, ctx, errors)) hits.push({ rec, ctx });
   }
 

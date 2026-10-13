@@ -1402,6 +1402,8 @@ table.rh-extra-tall .cell-box {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   overflow-wrap: anywhere;
+  /* Text from a section or code block keeps its lines. */
+  white-space: pre-wrap;
 }
 
 table.rh-medium .cell-box {

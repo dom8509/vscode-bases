@@ -4,6 +4,7 @@
 // that uses it shows what is missing instead of silently matching nothing.
 
 import type { LinkGraph } from "./links";
+import { codeblock, section } from "./sections";
 
 export class ExprError extends Error {}
 
@@ -173,6 +174,8 @@ export interface EvalContext {
   now: Date;
   /** Links between files, from the database in `bases.links.database`; undefined when none is set. */
   links?: LinkGraph;
+  /** The note's text after its frontmatter, for file.section and file.codeblock; undefined when it was not read. */
+  body?: () => string | undefined;
 }
 
 /** Function value produced by member access, so `x.contains` can be called. */
@@ -298,6 +301,12 @@ function fileCall(file: FileInfo, ctx: EvalContext, name: string, args: unknown[
   return fn.impl(args);
 }
 
+function noteBody(ctx: EvalContext, name: string): string {
+  const body = ctx.body?.();
+  if (body === undefined) throw new ExprError(`file.${name} needs the text of the note`);
+  return body;
+}
+
 function fileMember(file: FileInfo, ctx: EvalContext, name: string): unknown {
   switch (name) {
     case "links": return linkGraph(ctx, name).linksOf(file.path);
@@ -327,6 +336,13 @@ function fileMember(file: FileInfo, ctx: EvalContext, name: string): unknown {
         const f = String(folder ?? "").replace(/^\/+|\/+$/g, "");
         return f === "" || file.folder === f || file.folder.startsWith(`${f}/`);
       });
+    case "section":
+      // file.section("Text") or file.section("## Text"): the text under that heading.
+      return new Fn("file.section", ([heading]) => section(noteBody(ctx, name), String(heading ?? "")) ?? null);
+    case "codeblock":
+      // file.codeblock("text") or file.codeblock("text", "Text"): the first such block, under that heading.
+      return new Fn("file.codeblock", ([lang, heading]) =>
+        codeblock(noteBody(ctx, name), String(lang ?? ""), heading === undefined || heading === null ? undefined : String(heading)) ?? null);
     case "hasProperty":
       return new Fn("file.hasProperty", ([p]) => Object.prototype.hasOwnProperty.call(ctx.note, String(p)));
     default:

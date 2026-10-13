@@ -5,7 +5,7 @@
 import MarkdownIt from "markdown-it";
 import * as vscode from "vscode";
 import type { Row } from "../core/base";
-import { computeView, DEFAULT_PAGE_SIZE, parseBase, propertyRef } from "../core/base";
+import { computeView, DEFAULT_PAGE_SIZE, parseBase, propertyRef, usesNoteText } from "../core/base";
 import { updateBase, type BaseOp } from "../core/baseEdit";
 import { nextId } from "../core/autoId";
 import { documentMarkdown } from "../core/document";
@@ -143,6 +143,9 @@ function nonce(): string {
 }
 
 export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
+  /** The text after the frontmatter of files no editor holds, kept while their size and time stay the same. */
+  private readonly bodyCache = new Map<string, { mtime: number; size: number; body: string }>();
+
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly index: WorkspaceIndex,
@@ -176,7 +179,7 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
       }
       await this.index.ensureReady();
       const started = performance.now();
-      const result = computeView(base, this.index.all(), { ...ui, thisFile: await thisFile(), links: this.links.links() });
+      const result = computeView(base, this.index.all(), { ...ui, thisFile: await thisFile(), links: this.links.links(), bodies: await this.bodies(document.getText()) });
       ui.viewIndex = result.viewIndex;
       ui.page = result.page;
       this.log.debug(`${vscode.workspace.asRelativePath(document.uri)} › ${result.view.name}: ${result.matchCount} of ${result.total} files, page ${result.page + 1}, in ${Math.round(performance.now() - started)} ms`);
@@ -194,7 +197,7 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
     /** The files an edit applies to; "all matching" is resolved against the view as it is now. */
     const resolveTarget = async (target: EditTarget): Promise<vscode.Uri[]> => {
       if ("uris" in target) return target.uris.map((u) => vscode.Uri.parse(u));
-      const result = computeView(parseBase(document.getText()), this.index.all(), { ...ui, thisFile: await thisFile(), collectUris: true, links: this.links.links() });
+      const result = computeView(parseBase(document.getText()), this.index.all(), { ...ui, thisFile: await thisFile(), collectUris: true, links: this.links.links(), bodies: await this.bodies(document.getText()) });
       const except = new Set(target.except);
       return (result.allUris ?? []).filter((u) => !except.has(u)).map((u) => vscode.Uri.parse(u));
     };
@@ -271,7 +274,7 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
             await this.createNote(document, ui.viewIndex, post);
             break;
           case "export": {
-            const all = computeView(parseBase(document.getText()), this.index.all(), { ...ui, page: 0, pageSize: Number.MAX_SAFE_INTEGER, thisFile: await thisFile(), links: this.links.links() });
+            const all = computeView(parseBase(document.getText()), this.index.all(), { ...ui, page: 0, pageSize: Number.MAX_SAFE_INTEGER, thisFile: await thisFile(), links: this.links.links(), bodies: await this.bodies(document.getText()) });
             const files = `${all.rows.length} ${all.rows.length === 1 ? "row" : "rows"}`;
             // A grouped view keeps its groups as the first column, so a spreadsheet can filter by them.
             const g = all.group;
@@ -328,6 +331,34 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
   }
 
   /** Asks for a name, writes the note in the folder of `bases.newNoteFolder` (or the view's), and opens it. */
+  /** The text of every Markdown file, when the base reads it (file.section, file.codeblock); else undefined. */
+  private async bodies(source: string): Promise<Map<string, string> | undefined> {
+    if (!usesNoteText(source)) return undefined;
+    const out = new Map<string, string>();
+    const open = new Map(vscode.workspace.textDocuments.map((d) => [d.uri.toString(), d]));
+    const seen = new Set<string>();
+    await Promise.all([...this.index.all()].filter((r) => r.kind === "markdown").map(async (rec) => {
+      seen.add(rec.uri);
+      const doc = open.get(rec.uri);
+      if (doc) {
+        out.set(rec.uri, bodyText(doc.getText(), rec.kind));
+        return;
+      }
+      const cached = this.bodyCache.get(rec.uri);
+      if (cached && cached.mtime === rec.file.mtime && cached.size === rec.file.size) {
+        out.set(rec.uri, cached.body);
+        return;
+      }
+      const text = await vscode.workspace.fs.readFile(vscode.Uri.parse(rec.uri)).then((b) => new TextDecoder().decode(b), () => undefined);
+      if (text === undefined) return;
+      const body = bodyText(text, rec.kind);
+      this.bodyCache.set(rec.uri, { mtime: rec.file.mtime, size: rec.file.size, body });
+      out.set(rec.uri, body);
+    }));
+    for (const uri of this.bodyCache.keys()) if (!seen.has(uri)) this.bodyCache.delete(uri);
+    return out;
+  }
+
   private async createNote(document: vscode.TextDocument, viewIndex: number, post: (msg: ToWebview) => void): Promise<void> {
     const root = vscode.workspace.getWorkspaceFolder(document.uri)?.uri ?? vscode.workspace.workspaceFolders?.[0]?.uri;
     if (!root) {
@@ -337,7 +368,7 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
     const base = parseBase(document.getText());
     const note = newNote(base, viewIndex);
     // A column of IDs like REQ-041 gives the new note the next one (and its name); "id" is looked at first.
-    const all = computeView(base, this.index.all(), { viewIndex, page: 0, pageSize: Number.MAX_SAFE_INTEGER, links: this.links.links() });
+    const all = computeView(base, this.index.all(), { viewIndex, page: 0, pageSize: Number.MAX_SAFE_INTEGER, links: this.links.links(), bodies: await this.bodies(document.getText()) });
     const candidates = all.columns.filter((c) => c.editable).sort((a, b) => Number(b.id.toLowerCase() === "id") - Number(a.id.toLowerCase() === "id"));
     let id: string | undefined;
     for (const c of candidates) {

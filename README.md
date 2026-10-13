@@ -167,6 +167,15 @@ naming what is unsupported, rather than silently matching nothing.
 - **Links** (with a [link database](#links-from-a-database)): `file.links`,
   `file.backlinks`, `file.links("type", ...)`, `file.backlinks("type", ...)`,
   `file.hasLink(target)`, `file.hasLink(target, "type")`
+- **Note text:** `file.section("Text")` is the text under the heading
+  `Text` (any level; `"## Text"` only level 2), up to the next heading of
+  the same or a higher level. `file.codeblock("text")` is the content of
+  the first ```` ```text ```` block; `file.codeblock("text", "Text")` looks
+  only under the heading `Text`; `""` as language takes any block. Both are
+  empty when the note has none. Use them as a column
+  (`order: [file.name, 'file.section("Text")']`) or in a formula, and give
+  the column a name under `properties`. Choose a taller *row height* to see
+  more than one line.
 - **Operators:** `== != < <= > >= && || ! + - * / %`, parentheses, list literals
 - **Functions:** `if`, `now`, `today`, `date`, `number`, `list`, `min`, `max`
 - **Methods:** `contains`, `containsAll`, `containsAny`, `startsWith`,
