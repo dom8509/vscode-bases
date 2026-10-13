@@ -47,8 +47,11 @@ at once.
   card to another lane to change that value in its file. Drag a lane by its
   header to move it; the order is kept in the view (`groupBy.order`). Cards and list
   items have a checkbox for selecting, as the rows of the table do.
-- **Properties:** choose the columns, drag them into order, and add formulas
-  (a name and an expression; the formula becomes a column).
+- **Properties:** choose the columns and drag them into order. *Add
+  formula* at the bottom opens a dialog, as in Obsidian: a property name and
+  the formula, with completions for properties and functions (Tab or Enter
+  takes one) and a line that says whether the formula is valid. The pencil
+  next to a formula edits or renames it, or deletes it.
 - **Filter:** *This view* filters one view, *All views* the whole base. A
   filter is a property, an operator (is, contains, is empty, >, has tag, is
   in folder, …) and a value; groups combine filters with *all*, *any* or
@@ -173,8 +176,9 @@ naming what is unsupported, rather than silently matching nothing.
   the first ```` ```text ```` block; `file.codeblock("text", "Text")` looks
   only under the heading `Text`; `""` as language takes any block. Both are
   empty when the note has none. In *Properties*, tick `file.section` or
-  `file.codeblock` like `file.name` and type the heading (or the language,
-  and a heading if you like) next to it; tick it again for another column.
+  `file.codeblock` like `file.name`: a dialog asks for the heading (or the
+  language, and a heading if you like). Tick it again for another column;
+  the pencil changes or removes one.
   Or write it in `order` (`order: [file.name, 'file.section("Text")']`) or
   in a formula, and give the column a name under `properties`. Choose a taller *row height* to see
   more than one line.

@@ -17,6 +17,7 @@ import {
 import MarkdownIt from "markdown-it";
 import { outline, type OutlineItem } from "../src/core/chapters";
 import { entryParts } from "../src/core/document";
+import { parseExpr } from "../src/core/expr";
 import { noteTextArgs, noteTextId } from "../src/core/sections";
 import { icon, type IconName } from "./icons";
 import type { BaseOp, EditTarget, FromWebview, IndexProgress, SortSpec, ToWebview, UiEdit, UiState, ViewResult } from "../src/protocol";
@@ -705,41 +706,36 @@ function propertiesPanel(): HTMLElement {
   const matchesQuery = (p: PropertyInfo) => !q || p.id.toLowerCase().includes(q) || p.label.toLowerCase().includes(q);
 
   const item = (p: PropertyInfo, visible: boolean) => {
+    const parts = p.ns === "file" ? noteTextArgs(p.id.slice("file.".length)) : undefined;
+    const fn = parts?.fn ?? (p.id === "file.section" ? "section" : p.id === "file.codeblock" ? "codeblock" : undefined);
+    const formula = p.ns === "formula" ? p.id.slice("formula.".length) : undefined;
+    const edit = () => {
+      if (formula !== undefined) formulaDialog(formula);
+      else if (fn) noteTextDialog(fn, parts?.args ?? [], visible ? p.id : undefined);
+    };
     const box = el("input", { type: "checkbox" });
     box.checked = visible;
     box.onchange = () => {
       if (visible) setOrder(order.filter((id) => id !== p.id));
-      else if (p.id === "file.section" || p.id === "file.codeblock") {
-        const id = `${p.id}("")`;
-        if (!order.includes(id)) setOrder([...order, id]);
+      else if (fn) {
+        // Not ticked until the dialog is saved.
+        box.checked = false;
+        edit();
       } else setOrder([...order, p.id]);
     };
+    const name = parts
+      ? el("span", { class: "prop-name ns-file" }, el("span", { class: "prop-kind" }, icon(parts.fn === "section" ? "heading" : "code")), p.label)
+      : formula !== undefined
+        ? el("span", { class: "prop-name ns-formula" }, el("span", { class: "prop-kind" }, icon("sigma")), formula)
+        : el("span", { class: `prop-name ns-${p.ns}` }, propLabel(p));
     const li = el("li", { class: visible ? "prop visible" : "prop", title: p.id },
       el("span", { class: "grip" }, ...(visible ? [icon("grip")] : [])),
       box,
-      el("span", { class: `prop-name ns-${p.ns}` }, /^file\.(?:section|codeblock)\(/.test(p.id) ? p.id.slice(0, p.id.indexOf("(")) : propLabel(p)),
+      name,
     );
-    const parts = visible && p.ns === "file" ? noteTextArgs(p.id.slice("file.".length)) : undefined;
-    if (parts) {
-      // Changing the heading or language changes which column this is.
-      const set = (i: number, v: string) => {
-        const args = [...parts.args];
-        args[i] = v.trim();
-        const next = noteTextId(parts.fn, args);
-        if (next !== p.id && !order.includes(next)) setOrder(order.map((id) => (id === p.id ? next : id)));
-      };
-      li.append(parts.fn === "section"
-        ? textInput(`section-${p.id}`, parts.args[0] ?? "", (v) => set(0, v), { class: "small", placeholder: "heading", title: "The heading whose text the column shows" })
-        : el("span", { class: "row" },
-          textInput(`lang-${p.id}`, parts.args[0] ?? "", (v) => set(0, v), { class: "narrow", placeholder: "language", title: "The language of the code block, e.g. text; empty for any block" }),
-          textInput(`under-${p.id}`, parts.args[1] ?? "", (v) => set(1, v), { class: "narrow", placeholder: "under heading", title: "Only a block under this heading; empty for the whole note" })));
-    }
-    if (p.ns === "formula") {
-      const name = p.id.slice("formula.".length);
-      li.append(
-        textInput(`formula-${name}`, r.formulas[name] ?? "", (v) => v.trim() && ops({ op: "setFormula", name, expr: v.trim() }), { class: "expr small", title: "Formula" }),
-        iconButton("x", undefined, () => ops({ op: "setFormula", name, expr: undefined }), "", "Delete formula"),
-      );
+    if (formula !== undefined || parts) {
+      li.append(iconButton("pencil", undefined, edit, "prop-edit", formula !== undefined ? "Edit formula" : "Edit"));
+      name.ondblclick = edit;
     }
     if (visible) {
       li.draggable = true;
@@ -767,30 +763,247 @@ function propertiesPanel(): HTMLElement {
     render();
   };
 
-  // data-orig marks them as inputs whose typing survives a re-render.
-  const fName = el("input", { placeholder: "formula name", "data-key": "new-formula-name", "data-orig": "", class: "narrow" });
-  const fExpr = el("input", { placeholder: 'expression, e.g. priority * 2 or if(done, "✓", "")', "data-key": "new-formula-expr", "data-orig": "", class: "expr" });
-  const addFormula = () => {
-    const name = fName.value.trim();
-    if (!/^[A-Za-z_$][\w$]*$/.test(name)) {
-      fName.focus();
-      return;
-    }
-    if (!fExpr.value.trim()) {
-      fExpr.focus();
-      return;
-    }
-    ops({ op: "setFormula", name, expr: fExpr.value.trim() }, { op: "setView", index: r.viewIndex, key: "order", value: [...order.filter((id) => id !== `formula.${name}`), `formula.${name}`] });
-    fName.value = "";
-    fExpr.value = "";
-  };
-
   return el("div", { class: "panel" },
     el("div", { class: "panel-title" }, "Properties"),
     filterBox,
     el("ul", { class: "props" }, ...shown.filter(matchesQuery).map((p) => item(p, true)), ...hidden.filter(matchesQuery).map((p) => item(p, false))),
-    el("div", { class: "row" }, fName, fExpr, iconButton("sigma", "Add formula", addFormula, "add")),
+    el("div", { class: "panel-footer" }, iconButton("plus", "Add formula", () => formulaDialog(undefined), "add")),
   );
+}
+
+// --- the formula, section and code block dialogs -----------------------------------
+
+interface DialogField {
+  label: string;
+  value: string;
+  placeholder?: string;
+  hint?: string;
+  /** A formula: monospace, with completions. */
+  code?: boolean;
+}
+
+/**
+ * A dialog to write a formula or choose a section or code block, as Obsidian
+ * edits a formula: the fields, a line saying whether it is valid, and Save.
+ * Enter saves, Escape cancels.
+ */
+function editDialog(opts: {
+  title: string;
+  fields: DialogField[];
+  check: (values: string[]) => string | undefined;
+  save: (values: string[]) => void;
+  remove?: { label: string; run: () => void };
+}): void {
+  const before = document.activeElement as HTMLElement | null;
+  const close = () => {
+    overlay.remove();
+    before?.focus();
+  };
+  const inputs = opts.fields.map((f) => {
+    const input = el(f.code ? "textarea" : "input", { class: f.code ? "dialog-input code" : "dialog-input", placeholder: f.placeholder ?? "", spellcheck: "false", rows: f.code ? "3" : undefined }) as HTMLInputElement | HTMLTextAreaElement;
+    input.value = f.value;
+    return input;
+  });
+  const status = el("div", { class: "dialog-status" });
+  const saveButton = button("Save", () => trySave(), "primary");
+  const values = () => inputs.map((i) => i.value.trim());
+  const update = () => {
+    const error = opts.check(values());
+    status.replaceChildren(...(error ? [error] : [icon("check"), "Valid"]));
+    status.className = error ? "dialog-status error" : "dialog-status ok";
+    saveButton.disabled = error !== undefined;
+  };
+  const trySave = () => {
+    if (opts.check(values()) !== undefined) return;
+    close();
+    opts.save(values());
+  };
+  const rows = opts.fields.map((f, i) => {
+    const input = inputs[i]!;
+    const wrap = el("label", { class: "dialog-field" }, el("span", { class: "dialog-label" }, f.label), input, ...(f.hint ? [el("span", { class: "dialog-hint" }, f.hint)] : []));
+    if (f.code) wrap.append(completions(input as HTMLTextAreaElement, update));
+    input.addEventListener("input", update);
+    return wrap;
+  });
+  const box = el("div", { class: "dialog dialog-edit", role: "dialog", "aria-modal": "true" },
+    el("div", { class: "dialog-title" }, opts.title),
+    ...rows,
+    status,
+    el("div", { class: "dialog-buttons" },
+      ...(opts.remove ? [button(opts.remove.label, () => {
+        close();
+        opts.remove!.run();
+      }, "secondary danger")] : []),
+      el("span", { class: "spacer" }),
+      button("Cancel", close, "secondary"),
+      saveButton),
+  );
+  const overlay = el("div", { class: "dialog-overlay" }, box);
+  overlay.onmousedown = (e) => {
+    if (e.target === overlay) close();
+  };
+  box.onmousedown = (e) => e.stopPropagation();
+  box.onkeydown = (e) => {
+    e.stopPropagation();
+    if (e.defaultPrevented) return;
+    if (e.key === "Escape") {
+      e.preventDefault();
+      close();
+    } else if (e.key === "Enter" && !e.shiftKey && (e.target as HTMLElement).matches(".dialog-input")) {
+      e.preventDefault();
+      trySave();
+    }
+  };
+  document.body.append(overlay);
+  update();
+  const first = inputs.find((i) => !i.value) ?? inputs[inputs.length - 1]!;
+  first.focus();
+  first.setSelectionRange(first.value.length, first.value.length);
+}
+
+const FUNCTIONS = ["if", "now", "today", "date", "number", "list", "min", "max"];
+const FILE_FUNCTIONS = ["hasTag", "inFolder", "hasProperty", "hasLink", "section", "codeblock", "links", "backlinks"];
+const METHODS = ["contains", "containsAll", "containsAny", "startsWith", "endsWith", "lower", "upper", "trim", "replace", "split", "slice", "join", "unique", "sort", "reverse", "isEmpty", "isTruthy", "isType", "toString", "length", "round", "floor", "ceil", "abs", "toFixed", "format", "year", "month", "day"];
+
+/** What can be written where the caret is: properties, functions, and methods after a dot. */
+function completionsFor(word: string): string[] {
+  const props = (result?.properties ?? []).map((p) => p.id);
+  const dot = word.lastIndexOf(".");
+  let all: string[];
+  if (dot >= 0) {
+    const head = word.slice(0, dot);
+    all = head === "file"
+      ? [...props.filter((p) => p.startsWith("file.")), ...FILE_FUNCTIONS.map((f) => `file.${f}(`)]
+      : head === "formula" || head === "note"
+        ? props.filter((p) => p.startsWith(`${head}.`) || (head === "note" && !p.includes("."))).map((p) => (p.includes(".") ? p : `note.${p}`))
+        : METHODS.map((m) => `${head}.${m}${m === "length" || m === "year" || m === "month" || m === "day" ? "" : "("}`);
+  } else {
+    all = [...props, ...FUNCTIONS.map((f) => `${f}(`)];
+  }
+  const w = word.toLowerCase();
+  return [...new Set(all)].filter((c) => c.toLowerCase().startsWith(w) && c.toLowerCase() !== w).sort(byName).slice(0, 8);
+}
+
+/** The list of completions under a formula field; Tab or Enter takes one, arrows move, Escape hides it. */
+function completions(input: HTMLTextAreaElement, changed: () => void): HTMLElement {
+  const list = el("div", { class: "completions", role: "listbox" });
+  let items: string[] = [];
+  let active = 0;
+  let word = "";
+  const wordAt = () => /[A-Za-z_$][\w$.]*$/.exec(input.value.slice(0, input.selectionStart ?? input.value.length))?.[0] ?? "";
+  const show = () => {
+    list.replaceChildren(...items.map((c, i) => {
+      const item = el("div", { class: i === active ? "completion active" : "completion", role: "option" }, c);
+      item.onmousedown = (e) => {
+        e.preventDefault();
+        take(c);
+      };
+      return item;
+    }));
+    list.hidden = items.length === 0;
+  };
+  const refresh = () => {
+    word = wordAt();
+    // Inside a string, nothing to complete.
+    const before = input.value.slice(0, (input.selectionStart ?? 0) - word.length);
+    const inString = (before.match(/"/g)?.length ?? 0) % 2 === 1 || (before.match(/'/g)?.length ?? 0) % 2 === 1;
+    items = word && !inString ? completionsFor(word) : [];
+    active = 0;
+    show();
+  };
+  const take = (c: string) => {
+    const end = input.selectionStart ?? input.value.length;
+    const start = end - word.length;
+    input.value = input.value.slice(0, start) + c + input.value.slice(end);
+    const caret = start + c.length;
+    input.setSelectionRange(caret, caret);
+    items = [];
+    show();
+    changed();
+  };
+  input.addEventListener("input", refresh);
+  input.addEventListener("click", refresh);
+  input.addEventListener("blur", () => {
+    items = [];
+    show();
+  });
+  input.addEventListener("keydown", (e) => {
+    if (items.length === 0) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      active = (active + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+      show();
+    } else if (e.key === "Tab" || e.key === "Enter") {
+      e.preventDefault();
+      take(items[active]!);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      items = [];
+      show();
+    }
+  });
+  list.hidden = true;
+  return list;
+}
+
+/** Adds a formula (name undefined) or edits one: its name and expression. */
+function formulaDialog(name: string | undefined): void {
+  const r = result!;
+  editDialog({
+    title: name === undefined ? "Add formula" : "Edit formula",
+    fields: [
+      { label: "Property name", value: name ?? "", placeholder: "e.g. overdue" },
+      { label: "Formula", value: name === undefined ? "" : r.formulas[name] ?? "", placeholder: 'e.g. priority * 2 or if(done, "✓", "")', code: true },
+    ],
+    check: ([n, expr]) => {
+      if (!n) return "Give the formula a name";
+      if (!/^[A-Za-z_$][\w$]*$/.test(n!)) return "The name takes letters, digits and _ only, and starts with a letter";
+      if (n !== name && n! in r.formulas) return `There is already a formula ${n}`;
+      if (!expr) return "Write the formula";
+      try {
+        parseExpr(expr!);
+      } catch (e) {
+        return (e as Error).message;
+      }
+      return undefined;
+    },
+    save: ([n, expr]) => {
+      const list: BaseOp[] = [];
+      if (name !== undefined && n !== name) list.push({ op: "renameFormula", from: name, to: n! });
+      list.push({ op: "setFormula", name: n!, expr: expr! });
+      // A new formula shows as a column right away.
+      if (name === undefined) list.push({ op: "setView", index: r.viewIndex, key: "order", value: [...r.view.order.filter((id) => id !== `formula.${n}`), `formula.${n}`] });
+      ops(...list);
+    },
+    remove: name === undefined ? undefined : { label: "Delete formula", run: () => ops({ op: "setFormula", name, expr: undefined }) },
+  });
+}
+
+/** Adds a section or code block column (id undefined), or changes which one a column shows. */
+function noteTextDialog(fn: "section" | "codeblock", args: string[], id: string | undefined): void {
+  const r = result!;
+  const order = r.view.order;
+  const fields: DialogField[] = fn === "section"
+    ? [{ label: "Heading", value: args[0] ?? "", placeholder: "e.g. Text or ## Text", hint: "The column shows the text under this heading, up to the next heading of its level." }]
+    : [
+      { label: "Language", value: args[0] ?? "", placeholder: "e.g. text", hint: "The first code block in this language; empty for any block." },
+      { label: "Under heading", value: args[1] ?? "", placeholder: "optional, e.g. Text", hint: "Only a block under this heading; empty for the whole note." },
+    ];
+  editDialog({
+    title: `${id ? "Edit" : "Add"} ${fn === "section" ? "section" : "code block"}`,
+    fields,
+    check: (values) => {
+      if (fn === "section" && !values[0]) return "Name the heading";
+      const next = noteTextId(fn, values);
+      if (next !== id && order.includes(next)) return "This column is already shown";
+      return undefined;
+    },
+    save: (values) => {
+      const next = noteTextId(fn, values);
+      ops({ op: "setView", index: r.viewIndex, key: "order", value: id ? order.map((x) => (x === id ? next : x)) : [...order, next] });
+    },
+    remove: id ? { label: "Remove column", run: () => ops({ op: "setView", index: r.viewIndex, key: "order", value: order.filter((x) => x !== id) }) } : undefined,
+  });
 }
 
 // --- toolbar, bulk bar, table, pager ------------------------------------------------

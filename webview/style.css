@@ -394,6 +394,46 @@ li.prop:hover {
   font-family: var(--vscode-editor-font-family);
 }
 
+.prop-name {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* The small icon before a formula, section or code block, as Obsidian marks a formula. */
+.prop-kind {
+  display: inline-flex;
+  color: var(--vscode-descriptionForeground);
+}
+
+.prop-kind svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* The pencil shows on hover, as in Obsidian's menu. */
+li.prop .prop-edit {
+  visibility: hidden;
+  padding: 1px 3px;
+}
+
+li.prop:hover .prop-edit,
+li.prop .prop-edit:focus-visible {
+  visibility: visible;
+}
+
+/* Stays at the bottom while the list scrolls, as Obsidian keeps "Add formula" in view. */
+.panel-footer {
+  position: sticky;
+  bottom: -10px;
+  margin: 0 -12px -10px;
+  padding: 4px 12px 6px;
+  border-top: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border));
+  background: var(--vscode-editorWidget-background);
+}
+
 .pager {
   display: flex;
   align-items: center;
@@ -762,6 +802,110 @@ th .sort-arrow {
 
 .dialog p {
   margin: 0 0 12px;
+}
+
+/* --- the formula, section and code block dialogs --- */
+
+.dialog.dialog-edit {
+  width: min(480px, calc(100vw - 32px));
+  max-width: none;
+}
+
+.dialog-title {
+  margin-bottom: 12px;
+  font-weight: 600;
+  font-size: 1.1em;
+}
+
+.dialog-field {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.dialog-label {
+  font-weight: 600;
+}
+
+.dialog-hint {
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.9em;
+}
+
+.dialog-input {
+  box-sizing: border-box;
+  width: 100%;
+}
+
+textarea.dialog-input.code {
+  min-height: 4.5em;
+  padding: 6px 8px;
+  resize: vertical;
+  font-family: var(--vscode-editor-font-family);
+  font-size: var(--vscode-editor-font-size, 13px);
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: 4px;
+}
+
+textarea.dialog-input.code:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+.completions {
+  position: absolute;
+  z-index: 1;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 2px;
+  padding: 3px;
+  border: 1px solid var(--vscode-editorSuggestWidget-border, var(--vscode-editorWidget-border));
+  border-radius: 4px;
+  background: var(--vscode-editorSuggestWidget-background, var(--vscode-editorWidget-background));
+  box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+  font-family: var(--vscode-editor-font-family);
+}
+
+.completion {
+  padding: 2px 6px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.completion.active {
+  color: var(--vscode-editorSuggestWidget-selectedForeground, var(--vscode-list-activeSelectionForeground));
+  background: var(--vscode-editorSuggestWidget-selectedBackground, var(--vscode-list-activeSelectionBackground));
+}
+
+.dialog-status {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 1.4em;
+  margin-bottom: 12px;
+  font-size: 0.9em;
+}
+
+.dialog-status svg {
+  width: 14px;
+  height: 14px;
+}
+
+.dialog-status.ok {
+  color: var(--vscode-testing-iconPassed, #73c991);
+}
+
+.dialog-status.error {
+  color: var(--vscode-errorForeground);
+}
+
+.dialog-buttons .danger {
+  border: none;
 }
 
 .dialog-buttons {
