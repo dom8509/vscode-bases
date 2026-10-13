@@ -175,7 +175,7 @@ td .cell-input {
   color: var(--vscode-descriptionForeground);
 }
 
-/* --- toolbar additions, panels, pager --- */
+/* --- toolbar additions, panels --- */
 
 .spacer {
   flex: 1;
@@ -436,14 +436,6 @@ li.prop .prop-edit:focus-visible {
   padding: 4px 12px 6px;
   border-top: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border));
   background: var(--vscode-editorWidget-background);
-}
-
-.pager {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border-top: 1px solid var(--vscode-panel-border);
 }
 
 /* --- view switcher (dropdown) --- */

@@ -18,7 +18,7 @@ at once.
   adds a table. Arrow keys and Enter work in the menu, Escape closes it.
 - **Results:** click the result count next to the view name. *Limit* shows
   at most that many files, *Reset limit* shows all again. *Copy to
-  clipboard* copies the view's rows and columns (all pages, tab-separated:
+  clipboard* copies the view's rows and columns (tab-separated:
   they paste into a spreadsheet as cells); *Export CSV* saves them as a
   `.csv` file. In a table, *Export Excel* saves an `.xlsx` workbook: numbers
   stay numbers, dates are dates, the header is bold and frozen, and every
@@ -64,10 +64,10 @@ at once.
 - **Menus:** *Sort*, *Filter* and *Properties* open as small windows under
   their toolbar buttons, as in Obsidian. A click outside, the × at the top
   right, Escape, or the button again closes one.
-- **Search and pages:** the search icon in the toolbar shows the search box
+- **Search:** the search icon in the toolbar shows the search box
   (hidden at first); it searches the cells of the current view. Escape or
-  the icon again hides it and ends the search. The table shows 50 rows per page (`bases.pageSize`); the pager below
-  changes page and page size.
+  the icon again hides it and ends the search. A view shows every file it
+  matches, on one page.
 - **Edit a value:** click a cell. The editor fits the column: a checkbox
   toggles with one click, numbers get a number field, dates a date picker,
   lists their items as chips (Enter or comma adds one, × or Backspace
@@ -80,7 +80,7 @@ at once.
   them: a short question asks whether the new value goes to every selected
   file or only to this one. That answer is the only one asked for.
 - **Or with the bulk bar:** tick rows (Shift-click for a range; the header box
-  ticks the page, then *Select all* every matching file), then fill in
+  ticks every matching file), then fill in
   *property* and *value* in the bar above the table and choose *Set*,
   *Remove* or *Rename*. With more than one file you are asked first
   (`bases.confirmBulkEdits`); *Show Changes* opens the diff of every file.
@@ -295,7 +295,6 @@ To index less, narrow `bases.include` or add folders to `bases.exclude`.
 | `bases.include` | `**/*.{md,markdown,yml,yaml}` | files a base indexes |
 | `bases.exclude` | `**/node_modules/**`, `**/.git/**` | excluded on top of `files.exclude` |
 | `bases.confirmBulkEdits` | `true` | ask before an edit to more than one file, with a diff on request |
-| `bases.pageSize` | `50` | rows per page |
 | `bases.links.database` | empty | SQLite database with the links between files; empty: no links |
 | `bases.links.query` | `SELECT source, target, type FROM links` | SQL that returns one row per link |
 

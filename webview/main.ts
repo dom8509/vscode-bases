@@ -513,10 +513,10 @@ function resultsPanel(): HTMLElement {
     el("div", { class: "menu-sep" }),
     el("div", { class: "actions" },
       reset,
-      iconButton("clipboard", "Copy to clipboard", () => exportTo("clipboard"), "", "Copy the rows and columns of this view (all pages), tab-separated"),
-      iconButton("fileCsv", "Export CSV", () => exportTo("csv"), "", "Save the rows and columns of this view (all pages) as a CSV file"),
+      iconButton("clipboard", "Copy to clipboard", () => exportTo("clipboard"), "", "Copy the rows and columns of this view, tab-separated"),
+      iconButton("fileCsv", "Export CSV", () => exportTo("csv"), "", "Save the rows and columns of this view as a CSV file"),
       // Excel only for a table: the sheet is the table.
-      ...(r.view.type === "table" ? [iconButton("fileXlsx", "Export Excel", () => exportTo("xlsx"), "", "Save this table (all pages) as an Excel workbook, with typed cells and a filter on every column")] : []),
+      ...(r.view.type === "table" ? [iconButton("fileXlsx", "Export Excel", () => exportTo("xlsx"), "", "Save this table as an Excel workbook, with typed cells and a filter on every column")] : []),
       iconButton("fileMd", "Export Markdown", () => exportTo("markdown"), "", "Save the view as one document: chapters, each file's properties and text"),
       iconButton("fileHtml", "Export HTML (for PDF / Word)", () => exportTo("html"), "", "Save the view as a web page: print it to PDF, or open it in Word")),
   );
@@ -1025,7 +1025,7 @@ function sectionDialog(path: string, id: string | undefined): void {
   });
 }
 
-// --- toolbar, bulk bar, table, pager ------------------------------------------------
+// --- toolbar, bulk bar, table ------------------------------------------------
 
 function closePanel(): void {
   panel = undefined;
@@ -1747,27 +1747,6 @@ function kanban(): HTMLElement {
   }));
 }
 
-function pager(): HTMLElement {
-  const r = result!;
-  const from = r.matchCount === 0 ? 0 : r.page * r.pageSize + 1;
-  const to = Math.min((r.page + 1) * r.pageSize, r.matchCount);
-  const prev = iconButton("chevronLeft", undefined, () => setUi({ page: r.page - 1 }), "", "Previous page");
-  prev.disabled = r.page === 0;
-  const next = iconButton("chevronRight", undefined, () => setUi({ page: r.page + 1 }), "", "Next page");
-  next.disabled = r.page >= r.pageCount - 1;
-  const sizes = [25, 50, 100, 250, 500];
-  if (!sizes.includes(r.pageSize)) sizes.push(r.pageSize);
-  return el("div", { class: "pager" },
-    el("span", { class: "count" }, `${from}–${to} of ${r.matchCount}`),
-    prev,
-    el("span", {}, `Page ${r.page + 1} of ${r.pageCount}`),
-    next,
-    el("span", { class: "spacer" }),
-    el("label", { class: "count" }, "Rows per page ",
-      select("page-size", sizes.sort((a, b) => a - b).map((n) => ({ value: String(n), label: String(n) })), String(r.pageSize), (v) => setUi({ pageSize: Number(v), page: 0 }))),
-  );
-}
-
 // --- render -------------------------------------------------------------------
 
 function render(): void {
@@ -1795,7 +1774,6 @@ function render(): void {
   if (result) {
     if (selectionCount() > 0) parts.push(bulkBar());
     parts.push(el("div", { class: "table-host" }, content()));
-    if (result.pageCount > 1 || result.matchCount > 25) parts.push(pager());
   }
   if (pickerMenu) parts.push(pickerMenu);
   else openPicker = undefined;

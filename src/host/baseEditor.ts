@@ -5,7 +5,7 @@
 import MarkdownIt from "markdown-it";
 import * as vscode from "vscode";
 import type { Row } from "../core/base";
-import { computeView, DEFAULT_PAGE_SIZE, parseBase, propertyRef, usesNoteText } from "../core/base";
+import { computeView, parseBase, propertyRef, usesNoteText } from "../core/base";
 import { updateBase, type BaseOp } from "../core/baseEdit";
 import { nextId } from "../core/autoId";
 import { documentMarkdown } from "../core/document";
@@ -162,7 +162,8 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
     const ui: UiState = {
       viewIndex: 0,
       page: 0,
-      pageSize: vscode.workspace.getConfiguration("bases").get<number>("pageSize", DEFAULT_PAGE_SIZE),
+      // No pages: a view shows every file it matches.
+      pageSize: Number.MAX_SAFE_INTEGER,
       query: "",
     };
     let ready = false;
