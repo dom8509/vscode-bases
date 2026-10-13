@@ -152,6 +152,9 @@ function editable(v: unknown): string {
 /** `status`, `file.name`, or `formula.score (Score)` when a display name is set. */
 function propLabel(p: PropertyInfo): string {
   if (p.ns === "note") return p.label === p.id ? p.id : `${p.id} (${p.label})`;
+  // A part of the note's text reads better by its heading or language than by its expression.
+  if (p.id.startsWith("file.section(")) return `section: ${p.label}`;
+  if (p.id.startsWith("file.codeblock(")) return `code: ${p.label}`;
   return p.label === p.id.slice(p.ns.length + 1) ? p.id : `${p.id} (${p.label})`;
 }
 

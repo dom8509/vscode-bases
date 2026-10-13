@@ -80,3 +80,35 @@ export function codeblock(body: string, lang: string, heading?: string): string 
   }
   return undefined;
 }
+
+/** The headings of a note and its code blocks with a language, each under the heading it is in. */
+export interface Outline {
+  headings: string[];
+  blocks: { lang: string; heading?: string }[];
+}
+
+/** What file.section and file.codeblock can find in a note, for the property menus. */
+export function outline(body: string): Outline {
+  const headings: string[] = [];
+  const blocks: Outline["blocks"] = [];
+  let heading: string | undefined;
+  let fence: string | undefined;
+  for (const text of body.split(/\r?\n/)) {
+    const f = FENCE.exec(text);
+    if (fence) {
+      if (f && f[1]![0] === fence[0] && f[1]!.length >= fence.length && f[2]!.trim() === "") fence = undefined;
+    } else if (f) {
+      fence = f[1]!;
+      const lang = f[2]!.trim().split(/\s+/)[0]!.replace(/^\{\.?|\}$/g, "").toLowerCase();
+      if (lang && !blocks.some((b) => b.lang === lang && b.heading === heading)) blocks.push(heading === undefined ? { lang } : { lang, heading });
+    } else {
+      const h = HEADING.exec(text);
+      const title = h && (h[2] ?? "").trim();
+      if (title) {
+        heading = title;
+        if (!headings.includes(title)) headings.push(title);
+      }
+    }
+  }
+  return { headings, blocks };
+}

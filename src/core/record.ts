@@ -3,6 +3,7 @@
 
 import { isMap, parseAllDocuments, parseDocument, type Document } from "yaml";
 import type { FileInfo } from "./expr";
+import { outline, type Outline } from "./sections";
 
 export type SourceKind = "markdown" | "yaml";
 
@@ -14,6 +15,8 @@ export interface FileRecord {
   tags: string[];
   /** Why the record cannot be edited; undefined when it can. */
   readOnly?: string;
+  /** The headings and code blocks of a Markdown file's text, for the property menus. */
+  outline?: Outline;
 }
 
 export function sourceKind(ext: string): SourceKind | undefined {
@@ -72,6 +75,7 @@ export function parseRecord(uri: string, file: FileInfo, text: string): FileReco
   const kind = sourceKind(file.ext);
   if (!kind) return undefined;
   const base: FileRecord = { uri, file, kind, properties: {}, tags: [] };
+  if (kind === "markdown") base.outline = outline(bodyText(text, kind));
   const region = yamlRegion(text, kind);
   if (!region.exists) return base;
   const yamlText = text.slice(region.start, region.end);
