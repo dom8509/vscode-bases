@@ -93,12 +93,6 @@
           "default": true,
           "description": "Ask before an edit that changes more than one file, with the option to see the changes as a diff first."
         },
-        "bases.pageSize": {
-          "type": "integer",
-          "default": 50,
-          "minimum": 1,
-          "description": "Rows per page in a base's table."
-        },
         "bases.links.database": {
           "type": "string",
           "default": "",

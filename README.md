@@ -18,7 +18,7 @@ at once.
   adds a table. Arrow keys and Enter work in the menu, Escape closes it.
 - **Results:** click the result count next to the view name. *Limit* shows
   at most that many files, *Reset limit* shows all again. *Copy to
-  clipboard* copies the view's rows and columns (all pages, tab-separated:
+  clipboard* copies the view's rows and columns (tab-separated:
   they paste into a spreadsheet as cells); *Export CSV* saves them as a
   `.csv` file. In a table, *Export Excel* saves an `.xlsx` workbook: numbers
   stay numbers, dates are dates, the header is bold and frozen, and every
@@ -31,9 +31,11 @@ at once.
   **Document**: every file with its title, its properties in one line and
   the text of the note below them, read like one document. Click a title to
   edit the note.
-- **Group by and levels:** *Group by* in the view settings groups a table,
-  list or document under a heading per value. *Levels* says how a value
-  splits into nested headings (`groupBy.separator` in the file):
+- **Group and levels:** the *Group* button between *Sort* and *Filter*
+  groups a table, list or document under a heading per value: *Group by*
+  picks the property, then its direction, and × removes the group. *Levels*
+  says how a value splits into nested headings (`groupBy.separator` in the
+  file); it shows only when some value contains `.`, `/` or `>`:
   - *Chapter numbers* (the default): `3.2` or `3.2 Anmeldung` is chapter 3.2
     under chapter 3; they sort as 3 < 3.2 < 3.10 < 4, and a chapter's title
     is taken from any value that names it (`3 Funktionen`).
@@ -43,12 +45,15 @@ at once.
   - *None*: one heading per value.
 
   A board
-  groups its cards by one property (*Group by*), one lane per value; drag a
+  groups its cards by one property (*Group*), one lane per value; drag a
   card to another lane to change that value in its file. Drag a lane by its
   header to move it; the order is kept in the view (`groupBy.order`). Cards and list
   items have a checkbox for selecting, as the rows of the table do.
-- **Properties:** choose the columns, drag them into order, and add formulas
-  (a name and an expression; the formula becomes a column).
+- **Properties:** choose the columns and drag them into order. *Add
+  formula* at the bottom opens a dialog, as in Obsidian: a property name and
+  the formula, with completions for properties and functions (Tab or Enter
+  takes one) and a line that says whether the formula is valid. The pencil
+  next to a formula edits or renames it, or deletes it.
 - **Filter:** *This view* filters one view, *All views* the whole base. A
   filter is a property, an operator (is, contains, is empty, >, has tag, is
   in folder, …) and a value; groups combine filters with *all*, *any* or
@@ -59,10 +64,10 @@ at once.
 - **Menus:** *Sort*, *Filter* and *Properties* open as small windows under
   their toolbar buttons, as in Obsidian. A click outside, the × at the top
   right, Escape, or the button again closes one.
-- **Search and pages:** the search icon in the toolbar shows the search box
+- **Search:** the search icon in the toolbar shows the search box
   (hidden at first); it searches the cells of the current view. Escape or
-  the icon again hides it and ends the search. The table shows 50 rows per page (`bases.pageSize`); the pager below
-  changes page and page size.
+  the icon again hides it and ends the search. A view shows every file it
+  matches, on one page.
 - **Edit a value:** click a cell. The editor fits the column: a checkbox
   toggles with one click, numbers get a number field, dates a date picker,
   lists their items as chips (Enter or comma adds one, × or Backspace
@@ -75,7 +80,7 @@ at once.
   them: a short question asks whether the new value goes to every selected
   file or only to this one. That answer is the only one asked for.
 - **Or with the bulk bar:** tick rows (Shift-click for a range; the header box
-  ticks the page, then *Select all* every matching file), then fill in
+  ticks every matching file), then fill in
   *property* and *value* in the bar above the table and choose *Set*,
   *Remove* or *Rename*. With more than one file you are asked first
   (`bases.confirmBulkEdits`); *Show Changes* opens the diff of every file.
@@ -167,6 +172,28 @@ naming what is unsupported, rather than silently matching nothing.
 - **Links** (with a [link database](#links-from-a-database)): `file.links`,
   `file.backlinks`, `file.links("type", ...)`, `file.backlinks("type", ...)`,
   `file.hasLink(target)`, `file.hasLink(target, "type")`
+- **Note text:** `file.section(path)` is a part of the note's text. The
+  path goes from heading to heading, separated by `>`; each heading is
+  looked for under the one before (`"## Text"` matches level 2 only), and
+  a heading's part runs to the next heading of the same or a higher level.
+  The path can end in a code block: ```` ```text ```` is the first `text`
+  block, ```` ``` ```` any block, ```` ```text[2] ```` the second one.
+
+  | Path | Shows |
+  |---|---|
+  | `Text` | the text under `## Text` (any level) |
+  | `Text > Details` | the text under `### Details` inside `Text` |
+  | ```` Text > ```text ```` | the first `text` code block inside `Text` |
+  | ```` ```gherkin ```` | the first `gherkin` block of the note |
+
+  A `>` inside a heading is written `\>`. The cell is empty when the note
+  has no such part. In *Properties*, *Add section* (next to *Add formula*)
+  asks for the path and adds the column, named after it (`Text › text
+  block`). The pencil next to one changes or removes it; unticking it
+  removes it too. Or write it in `order`
+  (`order: [file.name, 'file.section("Text > Details")']`) or in a formula,
+  and give the column a name under `properties`. Choose a taller *row
+  height* to see more than one line.
 - **Operators:** `== != < <= > >= && || ! + - * / %`, parentheses, list literals
 - **Functions:** `if`, `now`, `today`, `date`, `number`, `list`, `min`, `max`
 - **Methods:** `contains`, `containsAll`, `containsAny`, `startsWith`,
@@ -268,7 +295,6 @@ To index less, narrow `bases.include` or add folders to `bases.exclude`.
 | `bases.include` | `**/*.{md,markdown,yml,yaml}` | files a base indexes |
 | `bases.exclude` | `**/node_modules/**`, `**/.git/**` | excluded on top of `files.exclude` |
 | `bases.confirmBulkEdits` | `true` | ask before an edit to more than one file, with a diff on request |
-| `bases.pageSize` | `50` | rows per page |
 | `bases.links.database` | empty | SQLite database with the links between files; empty: no links |
 | `bases.links.query` | `SELECT source, target, type FROM links` | SQL that returns one row per link |
 

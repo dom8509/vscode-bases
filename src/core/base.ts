@@ -2,6 +2,7 @@
 // filter, formulas, columns, sort and limit.
 
 import { parse } from "yaml";
+import { pathLabel, sectionArg } from "./sections";
 import { compare, ExprError, run, toDate, truthy, type EvalContext, type FileInfo } from "./expr";
 import { compareGroups } from "./chapters";
 import { displayOf, type ViewDisplay } from "./display";
@@ -164,6 +165,8 @@ export interface ViewResult {
   view: { name: string; type: string; order: string[]; sort: SortSpec[]; limit?: number; groupBy?: GroupBy; display: ViewDisplay };
   /** The column of the groupBy property, when the view has one; its values are in every row's cells. */
   group?: Column;
+  /** Some group value splits into levels ("3.2", "a/b", "a > b"), so the levels setting changes something. */
+  groupNested?: boolean;
   baseFilter: FilterGroup;
   viewFilter: FilterGroup;
   /** The filters as written in the file, to tell whether an edit in progress is still current. */
@@ -189,7 +192,7 @@ export interface ViewResult {
   errors: string[];
 }
 
-function context(rec: FileRecord, base: BaseConfig, now: Date, thisFile: FileInfo | undefined, links: LinkGraph | undefined, errors: Set<string>): EvalContext {
+function context(rec: FileRecord, base: BaseConfig, now: Date, thisFile: FileInfo | undefined, links: LinkGraph | undefined, bodies: ReadonlyMap<string, string> | undefined, errors: Set<string>): EvalContext {
   const formulaCache = new Map<string, unknown>();
   const evaluating = new Set<string>();
   const ctx: EvalContext = {
@@ -199,6 +202,7 @@ function context(rec: FileRecord, base: BaseConfig, now: Date, thisFile: FileInf
     now,
     thisFile,
     links,
+    body: () => (rec.kind === "yaml" ? "" : bodies?.get(rec.uri)),
     formula: (name) => {
       if (formulaCache.has(name)) return formulaCache.get(name);
       const src = base.formulas[name];
@@ -272,6 +276,13 @@ export interface ComputeOptions {
   thisFile?: FileInfo;
   /** Links between files, when the workspace has a link database. */
   links?: LinkGraph;
+  /** The text after the frontmatter of each Markdown file, by URI, for file.section. */
+  bodies?: ReadonlyMap<string, string>;
+}
+
+/** Whether a base reads the text of its notes (file.section), so the host has to load it. */
+export function usesNoteText(source: string): boolean {
+  return /\bfile\s*\.\s*section\b/.test(source);
 }
 
 export { DEFAULT_CARD_SIZE, type RowHeight, type ViewDisplay } from "./display";
@@ -280,9 +291,16 @@ export const DEFAULT_PAGE_SIZE = 50;
 
 const FILE_PROPERTIES = ["name", "basename", "path", "folder", "ext", "size", "mtime", "ctime", "tags"];
 
-function label(base: BaseConfig, ref: PropertyRef): string {
-  return base.properties[ref.id]?.displayName ?? base.properties[`note.${ref.id}`]?.displayName ?? ref.name;
+/** "Text › text block" for file.section("Text > ```text"). */
+function sectionLabel(id: string): string | undefined {
+  const path = sectionArg(id);
+  return path ? pathLabel(path) : undefined;
 }
+
+function label(base: BaseConfig, ref: PropertyRef): string {
+  return base.properties[ref.id]?.displayName ?? base.properties[`note.${ref.id}`]?.displayName ?? (ref.ns === "file" ? sectionLabel(ref.id) : undefined) ?? ref.name;
+}
+
 
 function displayText(v: unknown): string {
   if (v === null || v === undefined) return "";
@@ -300,7 +318,7 @@ export function computeView(base: BaseConfig, records: Iterable<FileRecord>, opt
   const all = [...records];
   const hits: { rec: FileRecord; ctx: EvalContext }[] = [];
   for (const rec of all) {
-    const ctx = context(rec, base, now, opts.thisFile, opts.links, errors);
+    const ctx = context(rec, base, now, opts.thisFile, opts.links, opts.bodies, errors);
     if (matches(base.filters, ctx, errors) && matches(view.filters, ctx, errors)) hits.push({ rec, ctx });
   }
 
@@ -418,6 +436,7 @@ export function computeView(base: BaseConfig, records: Iterable<FileRecord>, opt
     viewIndex,
     view: { name: view.name, type: view.type, order, sort, limit: typeof view.limit === "number" ? view.limit : undefined, groupBy, display },
     group: groupRef && columnOf(groupRef),
+    groupNested: groupFirst !== undefined && keyed.some((k) => (Array.isArray(k.group) ? k.group : [k.group]).some((v) => typeof v === "string" || typeof v === "number" ? /[./>]/.test(String(v)) : false)),
     baseFilter: toModel(base.filters),
     viewFilter: toModel(view.filters),
     rawFilters: { base: base.filters ?? null, view: view.filters ?? null },

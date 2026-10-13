@@ -188,6 +188,34 @@ describe("editing a base", () => {
     out = updateBase(out, [{ op: "setFormula", name: "twice", expr: undefined }]);
     expect(out).toBe(NEW_BASE);
   });
+
+  it("renames a formula with its columns, sorts, groups and display name", () => {
+    const before = `formulas:
+  a: priority * 2
+  twice: priority * 2
+properties:
+  formula.twice:
+    displayName: Twice
+views:
+  - type: table
+    name: T
+    groupBy:
+      property: formula.twice
+      direction: ASC
+    order: [file.name, formula.twice]
+    sort:
+      - property: formula.twice
+        direction: DESC
+`;
+    const out = updateBase(before, [{ op: "renameFormula", from: "twice", to: "double" }]);
+    const base = parseBase(out);
+    expect(Object.keys(base.formulas)).toEqual(["a", "double"]);
+    expect(base.properties["formula.double"]).toEqual({ displayName: "Twice" });
+    expect(base.views[0]!.order).toEqual(["file.name", "formula.double"]);
+    expect(base.views[0]!.sort).toEqual([{ property: "formula.double", direction: "DESC" }]);
+    expect(out).toContain("property: formula.double\n      direction: ASC");
+    expect(() => updateBase(before, [{ op: "renameFormula", from: "twice", to: "a" }])).toThrow(/already/);
+  });
 });
 
 describe("column types", () => {
@@ -308,5 +336,14 @@ views:
     expect(text).toBe("views:\n  - type: cards\n    name: C\n    order: [file.name]\n    image: note.cover\n    imageAspectRatio: 1.5\n    cardSize: 300\n");
     text = updateBase(text, [{ op: "setView", index: 0, key: "cardSize", value: undefined }]);
     expect(text).not.toContain("cardSize");
+  });
+});
+
+describe("group levels", () => {
+  it("tells when a group value can split into levels", () => {
+    const recs = [record("a.md", "---\nchapter: \"3.2\"\nstatus: open\n---\n"), record("b.md", "---\nchapter: 4\nstatus: done\n---\n")];
+    const view = (property: string) => computeView(parseBase(`views:\n  - type: table\n    name: T\n    groupBy:\n      property: ${property}\n      direction: ASC\n`), recs, { viewIndex: 0 });
+    expect(view("chapter").groupNested).toBe(true);
+    expect(view("status").groupNested).toBe(false);
   });
 });

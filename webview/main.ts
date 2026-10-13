@@ -2,7 +2,7 @@
 // what the person changed: cell values, and the base itself (views, filters,
 // columns, sort, formulas) the way Obsidian Bases lets you edit it.
 
-import type { Column, PropertyInfo, Row } from "../src/core/base";
+import type { Column, GroupBy, PropertyInfo, Row } from "../src/core/base";
 import { DEFAULT_CARD_SIZE, type RowHeight } from "../src/core/display";
 import {
   CONJUNCTIONS,
@@ -17,6 +17,8 @@ import {
 import MarkdownIt from "markdown-it";
 import { outline, type OutlineItem } from "../src/core/chapters";
 import { entryParts } from "../src/core/document";
+import { parseExpr } from "../src/core/expr";
+import { parsePath, sectionArg, sectionId } from "../src/core/sections";
 import { icon, type IconName } from "./icons";
 import type { BaseOp, EditTarget, FromWebview, IndexProgress, SortSpec, ToWebview, UiEdit, UiState, ViewResult } from "../src/protocol";
 
@@ -26,7 +28,7 @@ const send = (msg: FromWebview) => vscode.postMessage(msg);
 const ops = (...list: BaseOp[]) => send({ type: "baseOps", ops: list });
 const setUi = (state: Partial<UiState>) => send({ type: "ui", state });
 
-type Panel = "sort" | "filter" | "properties" | "view" | "results" | undefined;
+type Panel = "sort" | "group" | "filter" | "properties" | "view" | "results" | undefined;
 
 let result: ViewResult | undefined;
 let error: string | undefined;
@@ -428,20 +430,6 @@ function viewPanel(): HTMLElement {
         }, { disabled: r.views.length <= 1, danger: true, key: "view-delete" }))]
       : []));
 
-  // Cards are not grouped; the other layouts are, a board by lanes and the rest by headings.
-  const groupBy = v.type !== "cards"
-    ? [el("label", { class: "field" }, el("span", {}, "Group by"),
-      select(`view-group-${i}`, [{ value: "", label: "—" }, ...propertyOptions(v.groupBy ? [v.groupBy.property] : [])], v.groupBy?.property ?? "", (p) =>
-        ops({ op: "setView", index: i, key: "groupBy", value: p ? { ...v.groupBy, property: p, direction: v.groupBy?.direction ?? "ASC" } : undefined })))]
-    : [];
-  // How a group value splits into levels of headings; a board has lanes, not levels.
-  if (v.groupBy && v.type !== "cards" && v.type !== "kanban") {
-    const sep = v.groupBy.separator ?? ".";
-    const known = LEVEL_RULES.some((l) => l.value === sep);
-    groupBy.push(el("label", { class: "field", title: "Which part of a value starts a deeper heading" }, el("span", {}, "Levels"),
-      select(`view-levels-${i}`, [...LEVEL_RULES, ...(known ? [] : [{ value: sep, label: `Split at “${sep}”` }])], sep, (s) =>
-        ops({ op: "setView", index: i, key: "groupBy", value: { ...v.groupBy!, separator: s === "." ? undefined : s } }))));
-  }
   return el("div", { class: "panel view-panel" },
     el("div", { class: "panel-head" },
       iconButton("arrowLeft", undefined, () => {
@@ -456,7 +444,6 @@ function viewPanel(): HTMLElement {
     more,
     el("label", { class: "field" }, el("span", {}, "Name"), name),
     el("div", { class: "field" }, el("span", {}, "Layout"), layout),
-    ...groupBy,
     ...displayFields(v, i),
   );
 }
@@ -526,10 +513,10 @@ function resultsPanel(): HTMLElement {
     el("div", { class: "menu-sep" }),
     el("div", { class: "actions" },
       reset,
-      iconButton("clipboard", "Copy to clipboard", () => exportTo("clipboard"), "", "Copy the rows and columns of this view (all pages), tab-separated"),
-      iconButton("fileCsv", "Export CSV", () => exportTo("csv"), "", "Save the rows and columns of this view (all pages) as a CSV file"),
+      iconButton("clipboard", "Copy to clipboard", () => exportTo("clipboard"), "", "Copy the rows and columns of this view, tab-separated"),
+      iconButton("fileCsv", "Export CSV", () => exportTo("csv"), "", "Save the rows and columns of this view as a CSV file"),
       // Excel only for a table: the sheet is the table.
-      ...(r.view.type === "table" ? [iconButton("fileXlsx", "Export Excel", () => exportTo("xlsx"), "", "Save this table (all pages) as an Excel workbook, with typed cells and a filter on every column")] : []),
+      ...(r.view.type === "table" ? [iconButton("fileXlsx", "Export Excel", () => exportTo("xlsx"), "", "Save this table as an Excel workbook, with typed cells and a filter on every column")] : []),
       iconButton("fileMd", "Export Markdown", () => exportTo("markdown"), "", "Save the view as one document: chapters, each file's properties and text"),
       iconButton("fileHtml", "Export HTML (for PDF / Word)", () => exportTo("html"), "", "Save the view as a web page: print it to PDF, or open it in Word")),
   );
@@ -559,6 +546,44 @@ function sortPanel(): HTMLElement {
     el("div", { class: "panel-title" }, "Sort"),
     ...(rows.length > 0 ? rows : [el("p", { class: "hint" }, "Not sorted: files appear by path.")]),
     el("div", { class: "row" }, iconButton("plus", "Add sort", () => setSort([...r.sort, { property: unused?.id ?? "file.name", direction: "ASC" }]), "add")),
+  );
+}
+
+// --- group ------------------------------------------------------------------
+
+/** Groups the view by one property, as Obsidian does: a heading per value, or a lane per value on a board. */
+function groupPanel(): HTMLElement {
+  const r = result!;
+  const g = r.view.groupBy;
+  const setGroup = (value: GroupBy | undefined) => ops({ op: "setView", index: r.viewIndex, key: "groupBy", value });
+  if (r.view.type === "cards") {
+    return el("div", { class: "panel" },
+      el("div", { class: "panel-title" }, "Group"),
+      el("p", { class: "hint" }, "Cards are not grouped. Choose another layout in the view settings to group."));
+  }
+  const rows: HTMLElement[] = [];
+  if (g) {
+    rows.push(el("div", { class: "row" },
+      propertyPicker("group-p", g.property, (v) => setGroup({ ...g, property: v, order: undefined })),
+      select("group-d", [{ value: "ASC", label: "Ascending" }, { value: "DESC", label: "Descending" }], g.direction ?? "ASC", (v) => setGroup({ ...g, direction: v })),
+      iconButton("x", undefined, () => setGroup(undefined), "", "Remove group"),
+    ));
+    // How a value splits into levels of headings: only when some value can split (or a rule is set), and not on a board.
+    if (r.view.type !== "kanban" && (r.groupNested || g.separator !== undefined)) {
+      const sep = g.separator ?? ".";
+      const known = LEVEL_RULES.some((l) => l.value === sep);
+      rows.push(el("label", { class: "field", title: "Which part of a value starts a deeper heading" }, el("span", {}, "Levels"),
+        select("group-levels", [...LEVEL_RULES, ...(known ? [] : [{ value: sep, label: `Split at “${sep}”` }])], sep, (v) =>
+          setGroup({ ...g, separator: v === "." ? undefined : v }))));
+    }
+  }
+  const first = r.properties.find((p) => p.ns === "note") ?? r.properties[0];
+  return el("div", { class: "panel" },
+    el("div", { class: "panel-title" }, "Group"),
+    ...(g ? rows : [
+      el("p", { class: "hint" }, r.view.type === "kanban" ? "Not grouped: the board has one lane." : "Not grouped: one list of files."),
+      el("div", { class: "row" }, iconButton("plus", "Group by", () => setGroup({ property: first?.id ?? "file.folder", direction: "ASC" }), "add")),
+    ]),
   );
 }
 
@@ -659,7 +684,7 @@ function filterNode(scope: FilterScope, node: FilterNode, path: number[], depth:
       })),
     select(`${key}-op`, operatorsFor(node.property), node.op, (v) => updateFilter(scope, path, (n) => ({ ...(n as Extract<FilterNode, { kind: "cond" }>), op: v }))),
   );
-  if (op.needsValue) row.append(textInput(`${key}-v`, node.value, (v) => updateFilter(scope, path, (n) => ({ ...(n as Extract<FilterNode, { kind: "cond" }>), value: v })), { placeholder: "value" }));
+  if (op.needsValue) row.append(textInput(`${key}-v`, node.value, (v) => updateFilter(scope, path, (n) => ({ ...(n as Extract<FilterNode, { kind: "cond" }>), value: v })), { placeholder: "value", class: "filter-value" }));
   row.append(
     iconButton("code", undefined, () => updateFilter(scope, path, (n) => ({ kind: "expr", expr: conditionExpr(n as Extract<FilterNode, { kind: "cond" }>) })), "", "Edit as expression"),
     iconButton("x", undefined, () => updateFilter(scope, path, () => null), "", "Remove filter"),
@@ -696,26 +721,34 @@ function propertiesPanel(): HTMLElement {
   const order = r.view.order;
   const setOrder = (next: string[]) => ops({ op: "setView", index: r.viewIndex, key: "order", value: next });
   const q = propertySearch.trim().toLowerCase();
-  const shown = order.map((id) => r.properties.find((p) => p.id === id) ?? { id, label: id, ns: "note" as const });
+  const shown = order.map((id): PropertyInfo => r.properties.find((p) => p.id === id) ?? { id, label: r.columns.find((c) => c.id === id)?.label ?? id, ns: id.startsWith("file.") ? "file" : "note" });
   // The shown ones keep their column order (drag to change it); the rest go A to Z.
   const hidden = r.properties.filter((p) => !order.includes(p.id)).sort((a, b) => byName(a.id, b.id));
   const matchesQuery = (p: PropertyInfo) => !q || p.id.toLowerCase().includes(q) || p.label.toLowerCase().includes(q);
 
   const item = (p: PropertyInfo, visible: boolean) => {
+    const path = p.ns === "file" ? sectionArg(p.id) : undefined;
+    const formula = p.ns === "formula" ? p.id.slice("formula.".length) : undefined;
+    const edit = () => {
+      if (formula !== undefined) formulaDialog(formula);
+      else if (path !== undefined) sectionDialog(path, p.id);
+    };
     const box = el("input", { type: "checkbox" });
     box.checked = visible;
     box.onchange = () => setOrder(visible ? order.filter((id) => id !== p.id) : [...order, p.id]);
+    const name = path !== undefined
+      ? el("span", { class: "prop-name ns-file" }, el("span", { class: "prop-kind" }, icon(/(?:`{3}|~{3})[^>]*$/.test(path) ? "code" : "heading")), p.label)
+      : formula !== undefined
+        ? el("span", { class: "prop-name ns-formula" }, el("span", { class: "prop-kind" }, icon("sigma")), formula)
+        : el("span", { class: `prop-name ns-${p.ns}` }, propLabel(p));
     const li = el("li", { class: visible ? "prop visible" : "prop", title: p.id },
       el("span", { class: "grip" }, ...(visible ? [icon("grip")] : [])),
       box,
-      el("span", { class: `prop-name ns-${p.ns}` }, propLabel(p)),
+      name,
     );
-    if (p.ns === "formula") {
-      const name = p.id.slice("formula.".length);
-      li.append(
-        textInput(`formula-${name}`, r.formulas[name] ?? "", (v) => v.trim() && ops({ op: "setFormula", name, expr: v.trim() }), { class: "expr small", title: "Formula" }),
-        iconButton("x", undefined, () => ops({ op: "setFormula", name, expr: undefined }), "", "Delete formula"),
-      );
+    if (formula !== undefined || path !== undefined) {
+      li.append(iconButton("pencil", undefined, edit, "prop-edit", formula !== undefined ? "Edit formula" : "Edit"));
+      name.ondblclick = edit;
     }
     if (visible) {
       li.draggable = true;
@@ -743,33 +776,256 @@ function propertiesPanel(): HTMLElement {
     render();
   };
 
-  // data-orig marks them as inputs whose typing survives a re-render.
-  const fName = el("input", { placeholder: "formula name", "data-key": "new-formula-name", "data-orig": "", class: "narrow" });
-  const fExpr = el("input", { placeholder: 'expression, e.g. priority * 2 or if(done, "✓", "")', "data-key": "new-formula-expr", "data-orig": "", class: "expr" });
-  const addFormula = () => {
-    const name = fName.value.trim();
-    if (!/^[A-Za-z_$][\w$]*$/.test(name)) {
-      fName.focus();
-      return;
-    }
-    if (!fExpr.value.trim()) {
-      fExpr.focus();
-      return;
-    }
-    ops({ op: "setFormula", name, expr: fExpr.value.trim() }, { op: "setView", index: r.viewIndex, key: "order", value: [...order.filter((id) => id !== `formula.${name}`), `formula.${name}`] });
-    fName.value = "";
-    fExpr.value = "";
-  };
-
   return el("div", { class: "panel" },
     el("div", { class: "panel-title" }, "Properties"),
     filterBox,
     el("ul", { class: "props" }, ...shown.filter(matchesQuery).map((p) => item(p, true)), ...hidden.filter(matchesQuery).map((p) => item(p, false))),
-    el("div", { class: "row" }, fName, fExpr, iconButton("sigma", "Add formula", addFormula, "add")),
+    el("div", { class: "panel-footer" },
+      iconButton("plus", "Add formula", () => formulaDialog(undefined), "add", "A column computed from an expression"),
+      iconButton("plus", "Add section", () => sectionDialog("", undefined), "add", "A column with a part of each note: the text under a heading, or a code block")),
   );
 }
 
-// --- toolbar, bulk bar, table, pager ------------------------------------------------
+// --- the formula, section and code block dialogs -----------------------------------
+
+interface DialogField {
+  label: string;
+  value: string;
+  placeholder?: string;
+  hint?: string;
+  /** A formula: monospace, with completions. */
+  code?: boolean;
+}
+
+/**
+ * A dialog to write a formula or choose a section or code block, as Obsidian
+ * edits a formula: the fields, a line saying whether it is valid, and Save.
+ * Enter saves, Escape cancels.
+ */
+function editDialog(opts: {
+  title: string;
+  fields: DialogField[];
+  check: (values: string[]) => string | undefined;
+  save: (values: string[]) => void;
+  remove?: { label: string; run: () => void };
+}): void {
+  const before = document.activeElement as HTMLElement | null;
+  const close = () => {
+    overlay.remove();
+    before?.focus();
+  };
+  const inputs = opts.fields.map((f) => {
+    const input = el(f.code ? "textarea" : "input", { class: f.code ? "dialog-input code" : "dialog-input", placeholder: f.placeholder ?? "", spellcheck: "false", rows: f.code ? "3" : undefined }) as HTMLInputElement | HTMLTextAreaElement;
+    input.value = f.value;
+    return input;
+  });
+  const status = el("div", { class: "dialog-status" });
+  const saveButton = button("Save", () => trySave(), "primary");
+  const values = () => inputs.map((i) => i.value.trim());
+  const update = () => {
+    const error = opts.check(values());
+    status.replaceChildren(...(error ? [error] : [icon("check"), "Valid"]));
+    status.className = error ? "dialog-status error" : "dialog-status ok";
+    saveButton.disabled = error !== undefined;
+  };
+  const trySave = () => {
+    if (opts.check(values()) !== undefined) return;
+    close();
+    opts.save(values());
+  };
+  const rows = opts.fields.map((f, i) => {
+    const input = inputs[i]!;
+    const wrap = el("label", { class: "dialog-field" }, el("span", { class: "dialog-label" }, f.label), input, ...(f.hint ? [el("span", { class: "dialog-hint" }, f.hint)] : []));
+    if (f.code) wrap.append(completions(input as HTMLTextAreaElement, update));
+    input.addEventListener("input", update);
+    return wrap;
+  });
+  const box = el("div", { class: "dialog dialog-edit", role: "dialog", "aria-modal": "true" },
+    el("div", { class: "dialog-title" }, opts.title),
+    ...rows,
+    status,
+    el("div", { class: "dialog-buttons" },
+      ...(opts.remove ? [button(opts.remove.label, () => {
+        close();
+        opts.remove!.run();
+      }, "secondary danger")] : []),
+      el("span", { class: "spacer" }),
+      button("Cancel", close, "secondary"),
+      saveButton),
+  );
+  const overlay = el("div", { class: "dialog-overlay" }, box);
+  overlay.onmousedown = (e) => {
+    if (e.target === overlay) close();
+  };
+  box.onmousedown = (e) => e.stopPropagation();
+  box.onkeydown = (e) => {
+    e.stopPropagation();
+    if (e.defaultPrevented) return;
+    if (e.key === "Escape") {
+      e.preventDefault();
+      close();
+    } else if (e.key === "Enter" && !e.shiftKey && (e.target as HTMLElement).matches(".dialog-input")) {
+      e.preventDefault();
+      trySave();
+    }
+  };
+  document.body.append(overlay);
+  update();
+  const first = inputs.find((i) => !i.value) ?? inputs[inputs.length - 1]!;
+  first.focus();
+  first.setSelectionRange(first.value.length, first.value.length);
+}
+
+const FUNCTIONS = ["if", "now", "today", "date", "number", "list", "min", "max"];
+const FILE_FUNCTIONS = ["hasTag", "inFolder", "hasProperty", "hasLink", "section", "links", "backlinks"];
+const METHODS = ["contains", "containsAll", "containsAny", "startsWith", "endsWith", "lower", "upper", "trim", "replace", "split", "slice", "join", "unique", "sort", "reverse", "isEmpty", "isTruthy", "isType", "toString", "length", "round", "floor", "ceil", "abs", "toFixed", "format", "year", "month", "day"];
+
+/** What can be written where the caret is: properties, functions, and methods after a dot. */
+function completionsFor(word: string): string[] {
+  const props = (result?.properties ?? []).map((p) => p.id);
+  const dot = word.lastIndexOf(".");
+  let all: string[];
+  if (dot >= 0) {
+    const head = word.slice(0, dot);
+    all = head === "file"
+      ? [...props.filter((p) => p.startsWith("file.")), ...FILE_FUNCTIONS.map((f) => `file.${f}(`)]
+      : head === "formula" || head === "note"
+        ? props.filter((p) => p.startsWith(`${head}.`) || (head === "note" && !p.includes("."))).map((p) => (p.includes(".") ? p : `note.${p}`))
+        : METHODS.map((m) => `${head}.${m}${m === "length" || m === "year" || m === "month" || m === "day" ? "" : "("}`);
+  } else {
+    all = [...props, ...FUNCTIONS.map((f) => `${f}(`)];
+  }
+  const w = word.toLowerCase();
+  return [...new Set(all)].filter((c) => c.toLowerCase().startsWith(w) && c.toLowerCase() !== w).sort(byName).slice(0, 8);
+}
+
+/** The list of completions under a formula field; Tab or Enter takes one, arrows move, Escape hides it. */
+function completions(input: HTMLTextAreaElement, changed: () => void): HTMLElement {
+  const list = el("div", { class: "completions", role: "listbox" });
+  let items: string[] = [];
+  let active = 0;
+  let word = "";
+  const wordAt = () => /[A-Za-z_$][\w$.]*$/.exec(input.value.slice(0, input.selectionStart ?? input.value.length))?.[0] ?? "";
+  const show = () => {
+    list.replaceChildren(...items.map((c, i) => {
+      const item = el("div", { class: i === active ? "completion active" : "completion", role: "option" }, c);
+      item.onmousedown = (e) => {
+        e.preventDefault();
+        take(c);
+      };
+      return item;
+    }));
+    list.hidden = items.length === 0;
+  };
+  const refresh = () => {
+    word = wordAt();
+    // Inside a string, nothing to complete.
+    const before = input.value.slice(0, (input.selectionStart ?? 0) - word.length);
+    const inString = (before.match(/"/g)?.length ?? 0) % 2 === 1 || (before.match(/'/g)?.length ?? 0) % 2 === 1;
+    items = word && !inString ? completionsFor(word) : [];
+    active = 0;
+    show();
+  };
+  const take = (c: string) => {
+    const end = input.selectionStart ?? input.value.length;
+    const start = end - word.length;
+    input.value = input.value.slice(0, start) + c + input.value.slice(end);
+    const caret = start + c.length;
+    input.setSelectionRange(caret, caret);
+    items = [];
+    show();
+    changed();
+  };
+  input.addEventListener("input", refresh);
+  input.addEventListener("click", refresh);
+  input.addEventListener("blur", () => {
+    items = [];
+    show();
+  });
+  input.addEventListener("keydown", (e) => {
+    if (items.length === 0) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      active = (active + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+      show();
+    } else if (e.key === "Tab" || e.key === "Enter") {
+      e.preventDefault();
+      take(items[active]!);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      items = [];
+      show();
+    }
+  });
+  list.hidden = true;
+  return list;
+}
+
+/** Adds a formula (name undefined) or edits one: its name and expression. */
+function formulaDialog(name: string | undefined): void {
+  const r = result!;
+  editDialog({
+    title: name === undefined ? "Add formula" : "Edit formula",
+    fields: [
+      { label: "Property name", value: name ?? "", placeholder: "e.g. overdue" },
+      { label: "Formula", value: name === undefined ? "" : r.formulas[name] ?? "", placeholder: 'e.g. priority * 2 or if(done, "✓", "")', code: true },
+    ],
+    check: ([n, expr]) => {
+      if (!n) return "Give the formula a name";
+      if (!/^[A-Za-z_$][\w$]*$/.test(n!)) return "The name takes letters, digits and _ only, and starts with a letter";
+      if (n !== name && n! in r.formulas) return `There is already a formula ${n}`;
+      if (!expr) return "Write the formula";
+      try {
+        parseExpr(expr!);
+      } catch (e) {
+        return (e as Error).message;
+      }
+      return undefined;
+    },
+    save: ([n, expr]) => {
+      const list: BaseOp[] = [];
+      if (name !== undefined && n !== name) list.push({ op: "renameFormula", from: name, to: n! });
+      list.push({ op: "setFormula", name: n!, expr: expr! });
+      // A new formula shows as a column right away.
+      if (name === undefined) list.push({ op: "setView", index: r.viewIndex, key: "order", value: [...r.view.order.filter((id) => id !== `formula.${n}`), `formula.${n}`] });
+      ops(...list);
+    },
+    remove: name === undefined ? undefined : { label: "Delete formula", run: () => ops({ op: "setFormula", name, expr: undefined }) },
+  });
+}
+
+/** Adds a column with a part of each note (id undefined), or changes which part a column shows. */
+function sectionDialog(path: string, id: string | undefined): void {
+  const r = result!;
+  const order = r.view.order;
+  editDialog({
+    title: id ? "Edit section" : "Add section",
+    fields: [{
+      label: "Path",
+      value: path,
+      placeholder: "e.g. Text > Details > ```text",
+      hint: "Headings from the outside in, separated by >; each is looked for under the one before. End with ```text for the first text code block in it, ``` for any block, ```text[2] for the second.",
+    }],
+    check: ([value]) => {
+      if (!value) return "Name a heading or a code block";
+      try {
+        parsePath(value);
+      } catch (e) {
+        return (e as Error).message;
+      }
+      const next = sectionId(value);
+      if (next !== id && order.includes(next)) return "This column is already shown";
+      return undefined;
+    },
+    save: ([value]) => {
+      const next = sectionId(value!);
+      ops({ op: "setView", index: r.viewIndex, key: "order", value: id ? order.map((x) => (x === id ? next : x)) : [...order, next] });
+    },
+    remove: id ? { label: "Remove column", run: () => ops({ op: "setView", index: r.viewIndex, key: "order", value: order.filter((x) => x !== id) }) } : undefined,
+  });
+}
+
+// --- toolbar, bulk bar, table ------------------------------------------------
 
 function closePanel(): void {
   panel = undefined;
@@ -829,6 +1085,7 @@ function toolbar(): HTMLElement {
     resultsCount(),
     el("span", { class: "spacer" }),
     tool("sort", "sort", "Sort", r.sort.length, sortPanel),
+    tool("group", "group", "Group", r.view.groupBy ? 1 : 0, groupPanel),
     tool("filter", "filter", "Filter", filters, filterPanel),
     tool("properties", "properties", "Properties", 0, propertiesPanel),
     ...(searchOpen ? [el("label", { class: "search-box" }, searchBox)] : []),
@@ -1490,27 +1747,6 @@ function kanban(): HTMLElement {
   }));
 }
 
-function pager(): HTMLElement {
-  const r = result!;
-  const from = r.matchCount === 0 ? 0 : r.page * r.pageSize + 1;
-  const to = Math.min((r.page + 1) * r.pageSize, r.matchCount);
-  const prev = iconButton("chevronLeft", undefined, () => setUi({ page: r.page - 1 }), "", "Previous page");
-  prev.disabled = r.page === 0;
-  const next = iconButton("chevronRight", undefined, () => setUi({ page: r.page + 1 }), "", "Next page");
-  next.disabled = r.page >= r.pageCount - 1;
-  const sizes = [25, 50, 100, 250, 500];
-  if (!sizes.includes(r.pageSize)) sizes.push(r.pageSize);
-  return el("div", { class: "pager" },
-    el("span", { class: "count" }, `${from}–${to} of ${r.matchCount}`),
-    prev,
-    el("span", {}, `Page ${r.page + 1} of ${r.pageCount}`),
-    next,
-    el("span", { class: "spacer" }),
-    el("label", { class: "count" }, "Rows per page ",
-      select("page-size", sizes.sort((a, b) => a - b).map((n) => ({ value: String(n), label: String(n) })), String(r.pageSize), (v) => setUi({ pageSize: Number(v), page: 0 }))),
-  );
-}
-
 // --- render -------------------------------------------------------------------
 
 function render(): void {
@@ -1538,7 +1774,6 @@ function render(): void {
   if (result) {
     if (selectionCount() > 0) parts.push(bulkBar());
     parts.push(el("div", { class: "table-host" }, content()));
-    if (result.pageCount > 1 || result.matchCount > 25) parts.push(pager());
   }
   if (pickerMenu) parts.push(pickerMenu);
   else openPicker = undefined;
@@ -1561,13 +1796,19 @@ function render(): void {
 function keepInView(pop: HTMLElement | null): void {
   if (!pop) return;
   const margin = 8;
+  // Measured where CSS puts it: a window that grew may need another shift.
+  pop.style.transform = "";
   const rect = pop.getBoundingClientRect();
   let shift = 0;
   if (rect.right > window.innerWidth - margin) shift = window.innerWidth - margin - rect.right;
   if (rect.left + shift < margin) shift = margin - rect.left;
   if (shift) pop.style.transform = `translateX(${Math.round(shift)}px)`;
+  // As tall as its content, down to the bottom of the editor; then it scrolls.
+  pop.style.maxHeight = `${Math.max(160, Math.floor(window.innerHeight - rect.top - margin))}px`;
 }
 
+// Typing makes a field, and with it the window, wider.
+document.addEventListener("input", () => keepInView(app.querySelector<HTMLElement>(".popover")));
 window.addEventListener("resize", () => {
   keepInView(app.querySelector<HTMLElement>(".popover"));
   placePicker();

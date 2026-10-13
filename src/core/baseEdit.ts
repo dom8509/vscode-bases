@@ -2,7 +2,7 @@
 // columns, sort, limit and formulas. They go through the `yaml` Document API,
 // and only the lines that change are rewritten.
 
-import { isMap, isSeq, parseDocument, type Document, type YAMLMap } from "yaml";
+import { isMap, isScalar, isSeq, parseDocument, type Document, type YAMLMap } from "yaml";
 import type { Filter, GroupBy, SortSpec } from "./base";
 import { mergeLines } from "./writer";
 
@@ -28,7 +28,9 @@ export type BaseOp =
   /** Moves a view to another place; the first view is the one a base opens with. */
   | { op: "moveView"; index: number; to: number }
   /** Sets a formula; with expr undefined, removes it (and its column from every view). */
-  | { op: "setFormula"; name: string; expr: string | undefined };
+  | { op: "setFormula"; name: string; expr: string | undefined }
+  /** Renames a formula in place, with its columns, sorts, groups and display name in every view. */
+  | { op: "renameFormula"; from: string; to: string };
 
 function isEmptyValue(v: unknown): boolean {
   return v === undefined || v === null || (Array.isArray(v) && v.length === 0);
@@ -142,6 +144,31 @@ function apply(doc: Document, op: BaseOp): void {
         return;
       }
       if (isMap(formulas)) formulas.set(op.name, op.expr);
+      return;
+    }
+    case "renameFormula": {
+      if (op.from === op.to) return;
+      const formulas = root.get("formulas", true);
+      if (!isMap(formulas) || !formulas.has(op.from)) throw new Error(`No formula ${op.from}`);
+      if (formulas.has(op.to)) throw new Error(`A formula ${op.to} already exists`);
+      const renameKey = (map: YAMLMap, from: string, to: string) => {
+        const pair = map.items.find((p) => String((p.key as { value?: unknown })?.value ?? p.key) === from);
+        if (pair) pair.key = doc.createNode(to) as never;
+      };
+      renameKey(formulas, op.from, op.to);
+      const from = `formula.${op.from}`;
+      const to = `formula.${op.to}`;
+      const properties = root.get("properties", true);
+      if (isMap(properties)) renameKey(properties, from, to);
+      for (const v of views(doc)) {
+        const order = v.get("order", true);
+        if (isSeq(order)) for (const n of order.items) if (isScalar(n) && n.value === from) n.value = to;
+        const sort = v.get("sort", true);
+        if (isSeq(sort)) for (const s of sort.items) if (isMap(s) && s.get("property") === from) s.set("property", to);
+        const groupBy = v.get("groupBy", true);
+        if (isMap(groupBy) && groupBy.get("property") === from) groupBy.set("property", to);
+        else if (isScalar(groupBy) && groupBy.value === from) groupBy.value = to;
+      }
       return;
     }
   }
