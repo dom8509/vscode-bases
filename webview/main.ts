@@ -2,7 +2,7 @@
 // what the person changed: cell values, and the base itself (views, filters,
 // columns, sort, formulas) the way Obsidian Bases lets you edit it.
 
-import type { Column, PropertyInfo, Row } from "../src/core/base";
+import type { Column, GroupBy, PropertyInfo, Row } from "../src/core/base";
 import { DEFAULT_CARD_SIZE, type RowHeight } from "../src/core/display";
 import {
   CONJUNCTIONS,
@@ -28,7 +28,7 @@ const send = (msg: FromWebview) => vscode.postMessage(msg);
 const ops = (...list: BaseOp[]) => send({ type: "baseOps", ops: list });
 const setUi = (state: Partial<UiState>) => send({ type: "ui", state });
 
-type Panel = "sort" | "filter" | "properties" | "view" | "results" | undefined;
+type Panel = "sort" | "group" | "filter" | "properties" | "view" | "results" | undefined;
 
 let result: ViewResult | undefined;
 let error: string | undefined;
@@ -430,20 +430,6 @@ function viewPanel(): HTMLElement {
         }, { disabled: r.views.length <= 1, danger: true, key: "view-delete" }))]
       : []));
 
-  // Cards are not grouped; the other layouts are, a board by lanes and the rest by headings.
-  const groupBy = v.type !== "cards"
-    ? [el("label", { class: "field" }, el("span", {}, "Group by"),
-      select(`view-group-${i}`, [{ value: "", label: "—" }, ...propertyOptions(v.groupBy ? [v.groupBy.property] : [])], v.groupBy?.property ?? "", (p) =>
-        ops({ op: "setView", index: i, key: "groupBy", value: p ? { ...v.groupBy, property: p, direction: v.groupBy?.direction ?? "ASC" } : undefined })))]
-    : [];
-  // How a group value splits into levels of headings; a board has lanes, not levels.
-  if (v.groupBy && v.type !== "cards" && v.type !== "kanban") {
-    const sep = v.groupBy.separator ?? ".";
-    const known = LEVEL_RULES.some((l) => l.value === sep);
-    groupBy.push(el("label", { class: "field", title: "Which part of a value starts a deeper heading" }, el("span", {}, "Levels"),
-      select(`view-levels-${i}`, [...LEVEL_RULES, ...(known ? [] : [{ value: sep, label: `Split at “${sep}”` }])], sep, (s) =>
-        ops({ op: "setView", index: i, key: "groupBy", value: { ...v.groupBy!, separator: s === "." ? undefined : s } }))));
-  }
   return el("div", { class: "panel view-panel" },
     el("div", { class: "panel-head" },
       iconButton("arrowLeft", undefined, () => {
@@ -458,7 +444,6 @@ function viewPanel(): HTMLElement {
     more,
     el("label", { class: "field" }, el("span", {}, "Name"), name),
     el("div", { class: "field" }, el("span", {}, "Layout"), layout),
-    ...groupBy,
     ...displayFields(v, i),
   );
 }
@@ -561,6 +546,44 @@ function sortPanel(): HTMLElement {
     el("div", { class: "panel-title" }, "Sort"),
     ...(rows.length > 0 ? rows : [el("p", { class: "hint" }, "Not sorted: files appear by path.")]),
     el("div", { class: "row" }, iconButton("plus", "Add sort", () => setSort([...r.sort, { property: unused?.id ?? "file.name", direction: "ASC" }]), "add")),
+  );
+}
+
+// --- group ------------------------------------------------------------------
+
+/** Groups the view by one property, as Obsidian does: a heading per value, or a lane per value on a board. */
+function groupPanel(): HTMLElement {
+  const r = result!;
+  const g = r.view.groupBy;
+  const setGroup = (value: GroupBy | undefined) => ops({ op: "setView", index: r.viewIndex, key: "groupBy", value });
+  if (r.view.type === "cards") {
+    return el("div", { class: "panel" },
+      el("div", { class: "panel-title" }, "Group"),
+      el("p", { class: "hint" }, "Cards are not grouped. Choose another layout in the view settings to group."));
+  }
+  const rows: HTMLElement[] = [];
+  if (g) {
+    rows.push(el("div", { class: "row" },
+      propertyPicker("group-p", g.property, (v) => setGroup({ ...g, property: v, order: undefined })),
+      select("group-d", [{ value: "ASC", label: "Ascending" }, { value: "DESC", label: "Descending" }], g.direction ?? "ASC", (v) => setGroup({ ...g, direction: v })),
+      iconButton("x", undefined, () => setGroup(undefined), "", "Remove group"),
+    ));
+    // How a value splits into levels of headings; a board has lanes, not levels.
+    if (r.view.type !== "kanban") {
+      const sep = g.separator ?? ".";
+      const known = LEVEL_RULES.some((l) => l.value === sep);
+      rows.push(el("label", { class: "field", title: "Which part of a value starts a deeper heading" }, el("span", {}, "Levels"),
+        select("group-levels", [...LEVEL_RULES, ...(known ? [] : [{ value: sep, label: `Split at “${sep}”` }])], sep, (v) =>
+          setGroup({ ...g, separator: v === "." ? undefined : v }))));
+    }
+  }
+  const first = r.properties.find((p) => p.ns === "note") ?? r.properties[0];
+  return el("div", { class: "panel" },
+    el("div", { class: "panel-title" }, "Group"),
+    ...(g ? rows : [
+      el("p", { class: "hint" }, r.view.type === "kanban" ? "Not grouped: the board has one lane." : "Not grouped: one list of files."),
+      el("div", { class: "row" }, iconButton("plus", "Group by", () => setGroup({ property: first?.id ?? "file.folder", direction: "ASC" }), "add")),
+    ]),
   );
 }
 
@@ -1062,6 +1085,7 @@ function toolbar(): HTMLElement {
     resultsCount(),
     el("span", { class: "spacer" }),
     tool("sort", "sort", "Sort", r.sort.length, sortPanel),
+    tool("group", "group", "Group", r.view.groupBy ? 1 : 0, groupPanel),
     tool("filter", "filter", "Filter", filters, filterPanel),
     tool("properties", "properties", "Properties", 0, propertiesPanel),
     ...(searchOpen ? [el("label", { class: "search-box" }, searchBox)] : []),
