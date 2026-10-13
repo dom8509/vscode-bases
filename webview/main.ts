@@ -684,7 +684,7 @@ function filterNode(scope: FilterScope, node: FilterNode, path: number[], depth:
       })),
     select(`${key}-op`, operatorsFor(node.property), node.op, (v) => updateFilter(scope, path, (n) => ({ ...(n as Extract<FilterNode, { kind: "cond" }>), op: v }))),
   );
-  if (op.needsValue) row.append(textInput(`${key}-v`, node.value, (v) => updateFilter(scope, path, (n) => ({ ...(n as Extract<FilterNode, { kind: "cond" }>), value: v })), { placeholder: "value" }));
+  if (op.needsValue) row.append(textInput(`${key}-v`, node.value, (v) => updateFilter(scope, path, (n) => ({ ...(n as Extract<FilterNode, { kind: "cond" }>), value: v })), { placeholder: "value", class: "filter-value" }));
   row.append(
     iconButton("code", undefined, () => updateFilter(scope, path, (n) => ({ kind: "expr", expr: conditionExpr(n as Extract<FilterNode, { kind: "cond" }>) })), "", "Edit as expression"),
     iconButton("x", undefined, () => updateFilter(scope, path, () => null), "", "Remove filter"),
@@ -1818,13 +1818,19 @@ function render(): void {
 function keepInView(pop: HTMLElement | null): void {
   if (!pop) return;
   const margin = 8;
+  // Measured where CSS puts it: a window that grew may need another shift.
+  pop.style.transform = "";
   const rect = pop.getBoundingClientRect();
   let shift = 0;
   if (rect.right > window.innerWidth - margin) shift = window.innerWidth - margin - rect.right;
   if (rect.left + shift < margin) shift = margin - rect.left;
   if (shift) pop.style.transform = `translateX(${Math.round(shift)}px)`;
+  // As tall as its content, down to the bottom of the editor; then it scrolls.
+  pop.style.maxHeight = `${Math.max(160, Math.floor(window.innerHeight - rect.top - margin))}px`;
 }
 
+// Typing makes a field, and with it the window, wider.
+document.addEventListener("input", () => keepInView(app.querySelector<HTMLElement>(".popover")));
 window.addEventListener("resize", () => {
   keepInView(app.querySelector<HTMLElement>(".popover"));
   placePicker();
