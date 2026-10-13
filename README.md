@@ -175,10 +175,10 @@ naming what is unsupported, rather than silently matching nothing.
   the same or a higher level. `file.codeblock("text")` is the content of
   the first ```` ```text ```` block; `file.codeblock("text", "Text")` looks
   only under the heading `Text`; `""` as language takes any block. Both are
-  empty when the note has none. In *Properties*, tick `file.section` or
-  `file.codeblock` like `file.name`: a dialog asks for the heading (or the
-  language, and a heading if you like). Tick it again for another column;
-  the pencil changes or removes one.
+  empty when the note has none. In *Properties*, *Add section* and *Add code
+  block* (next to *Add formula*) ask for the heading (or the language, and a
+  heading if you like) and add the column. The pencil next to one changes
+  or removes it; unticking it removes it too.
   Or write it in `order` (`order: [file.name, 'file.section("Text")']`) or
   in a formula, and give the column a name under `properties`. Choose a taller *row height* to see
   more than one line.

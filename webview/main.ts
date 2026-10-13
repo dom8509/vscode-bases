@@ -700,29 +700,19 @@ function propertiesPanel(): HTMLElement {
   const q = propertySearch.trim().toLowerCase();
   const shown = order.map((id): PropertyInfo => r.properties.find((p) => p.id === id) ?? { id, label: r.columns.find((c) => c.id === id)?.label ?? id, ns: id.startsWith("file.") ? "file" : "note" });
   // The shown ones keep their column order (drag to change it); the rest go A to Z.
-  // file.section and file.codeblock can be added any number of times: ticked, each asks for its heading or language.
-  const noteText: PropertyInfo[] = [{ id: "file.section", label: "section", ns: "file" }, { id: "file.codeblock", label: "codeblock", ns: "file" }];
-  const hidden = [...r.properties.filter((p) => !order.includes(p.id)), ...noteText].sort((a, b) => byName(a.id, b.id));
+  const hidden = r.properties.filter((p) => !order.includes(p.id)).sort((a, b) => byName(a.id, b.id));
   const matchesQuery = (p: PropertyInfo) => !q || p.id.toLowerCase().includes(q) || p.label.toLowerCase().includes(q);
 
   const item = (p: PropertyInfo, visible: boolean) => {
     const parts = p.ns === "file" ? noteTextArgs(p.id.slice("file.".length)) : undefined;
-    const fn = parts?.fn ?? (p.id === "file.section" ? "section" : p.id === "file.codeblock" ? "codeblock" : undefined);
     const formula = p.ns === "formula" ? p.id.slice("formula.".length) : undefined;
     const edit = () => {
       if (formula !== undefined) formulaDialog(formula);
-      else if (fn) noteTextDialog(fn, parts?.args ?? [], visible ? p.id : undefined);
+      else if (parts) noteTextDialog(parts.fn, parts.args, p.id);
     };
     const box = el("input", { type: "checkbox" });
     box.checked = visible;
-    box.onchange = () => {
-      if (visible) setOrder(order.filter((id) => id !== p.id));
-      else if (fn) {
-        // Not ticked until the dialog is saved.
-        box.checked = false;
-        edit();
-      } else setOrder([...order, p.id]);
-    };
+    box.onchange = () => setOrder(visible ? order.filter((id) => id !== p.id) : [...order, p.id]);
     const name = parts
       ? el("span", { class: "prop-name ns-file" }, el("span", { class: "prop-kind" }, icon(parts.fn === "section" ? "heading" : "code")), p.label)
       : formula !== undefined
@@ -767,7 +757,10 @@ function propertiesPanel(): HTMLElement {
     el("div", { class: "panel-title" }, "Properties"),
     filterBox,
     el("ul", { class: "props" }, ...shown.filter(matchesQuery).map((p) => item(p, true)), ...hidden.filter(matchesQuery).map((p) => item(p, false))),
-    el("div", { class: "panel-footer" }, iconButton("plus", "Add formula", () => formulaDialog(undefined), "add")),
+    el("div", { class: "panel-footer" },
+      iconButton("plus", "Add formula", () => formulaDialog(undefined), "add", "A column computed from an expression"),
+      iconButton("plus", "Add section", () => noteTextDialog("section", [], undefined), "add", "A column with the text under a heading of each note"),
+      iconButton("plus", "Add code block", () => noteTextDialog("codeblock", [], undefined), "add", "A column with a code block of each note")),
   );
 }
 
