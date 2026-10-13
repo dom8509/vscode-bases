@@ -170,18 +170,28 @@ naming what is unsupported, rather than silently matching nothing.
 - **Links** (with a [link database](#links-from-a-database)): `file.links`,
   `file.backlinks`, `file.links("type", ...)`, `file.backlinks("type", ...)`,
   `file.hasLink(target)`, `file.hasLink(target, "type")`
-- **Note text:** `file.section("Text")` is the text under the heading
-  `Text` (any level; `"## Text"` only level 2), up to the next heading of
-  the same or a higher level. `file.codeblock("text")` is the content of
-  the first ```` ```text ```` block; `file.codeblock("text", "Text")` looks
-  only under the heading `Text`; `""` as language takes any block. Both are
-  empty when the note has none. In *Properties*, *Add section* and *Add code
-  block* (next to *Add formula*) ask for the heading (or the language, and a
-  heading if you like) and add the column. The pencil next to one changes
-  or removes it; unticking it removes it too.
-  Or write it in `order` (`order: [file.name, 'file.section("Text")']`) or
-  in a formula, and give the column a name under `properties`. Choose a taller *row height* to see
-  more than one line.
+- **Note text:** `file.section(path)` is a part of the note's text. The
+  path goes from heading to heading, separated by `>`; each heading is
+  looked for under the one before (`"## Text"` matches level 2 only), and
+  a heading's part runs to the next heading of the same or a higher level.
+  The path can end in a code block: ```` ```text ```` is the first `text`
+  block, ```` ``` ```` any block, ```` ```text[2] ```` the second one.
+
+  | Path | Shows |
+  |---|---|
+  | `Text` | the text under `## Text` (any level) |
+  | `Text > Details` | the text under `### Details` inside `Text` |
+  | ```` Text > ```text ```` | the first `text` code block inside `Text` |
+  | ```` ```gherkin ```` | the first `gherkin` block of the note |
+
+  A `>` inside a heading is written `\>`. The cell is empty when the note
+  has no such part. In *Properties*, *Add section* (next to *Add formula*)
+  asks for the path and adds the column, named after it (`Text › text
+  block`). The pencil next to one changes or removes it; unticking it
+  removes it too. Or write it in `order`
+  (`order: [file.name, 'file.section("Text > Details")']`) or in a formula,
+  and give the column a name under `properties`. Choose a taller *row
+  height* to see more than one line.
 - **Operators:** `== != < <= > >= && || ! + - * / %`, parentheses, list literals
 - **Functions:** `if`, `now`, `today`, `date`, `number`, `list`, `min`, `max`
 - **Methods:** `contains`, `containsAll`, `containsAny`, `startsWith`,

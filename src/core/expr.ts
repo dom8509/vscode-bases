@@ -4,7 +4,7 @@
 // that uses it shows what is missing instead of silently matching nothing.
 
 import type { LinkGraph } from "./links";
-import { codeblock, section } from "./sections";
+import { sectionPath } from "./sections";
 
 export class ExprError extends Error {}
 
@@ -174,7 +174,7 @@ export interface EvalContext {
   now: Date;
   /** Links between files, from the database in `bases.links.database`; undefined when none is set. */
   links?: LinkGraph;
-  /** The note's text after its frontmatter, for file.section and file.codeblock; undefined when it was not read. */
+  /** The note's text after its frontmatter, for file.section; undefined when it was not read. */
   body?: () => string | undefined;
 }
 
@@ -337,12 +337,15 @@ function fileMember(file: FileInfo, ctx: EvalContext, name: string): unknown {
         return f === "" || file.folder === f || file.folder.startsWith(`${f}/`);
       });
     case "section":
-      // file.section("Text") or file.section("## Text"): the text under that heading.
-      return new Fn("file.section", ([heading]) => section(noteBody(ctx, name), String(heading ?? "")) ?? null);
-    case "codeblock":
-      // file.codeblock("text") or file.codeblock("text", "Text"): the first such block, under that heading.
-      return new Fn("file.codeblock", ([lang, heading]) =>
-        codeblock(noteBody(ctx, name), String(lang ?? ""), heading === undefined || heading === null ? undefined : String(heading)) ?? null);
+      // file.section("Text > Details > ```text"): a heading under a heading, down to a code block.
+      return new Fn("file.section", ([path]) => {
+        try {
+          return sectionPath(noteBody(ctx, name), String(path ?? "")) ?? null;
+        } catch (e) {
+          if (e instanceof ExprError) throw e;
+          throw new ExprError(`file.section: ${(e as Error).message}`);
+        }
+      });
     case "hasProperty":
       return new Fn("file.hasProperty", ([p]) => Object.prototype.hasOwnProperty.call(ctx.note, String(p)));
     default:

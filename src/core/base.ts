@@ -2,7 +2,7 @@
 // filter, formulas, columns, sort and limit.
 
 import { parse } from "yaml";
-import { noteTextArgs } from "./sections";
+import { pathLabel, sectionArg } from "./sections";
 import { compare, ExprError, run, toDate, truthy, type EvalContext, type FileInfo } from "./expr";
 import { compareGroups } from "./chapters";
 import { displayOf, type ViewDisplay } from "./display";
@@ -274,13 +274,13 @@ export interface ComputeOptions {
   thisFile?: FileInfo;
   /** Links between files, when the workspace has a link database. */
   links?: LinkGraph;
-  /** The text after the frontmatter of each Markdown file, by URI, for file.section and file.codeblock. */
+  /** The text after the frontmatter of each Markdown file, by URI, for file.section. */
   bodies?: ReadonlyMap<string, string>;
 }
 
-/** Whether a base reads the text of its notes (file.section, file.codeblock), so the host has to load it. */
+/** Whether a base reads the text of its notes (file.section), so the host has to load it. */
 export function usesNoteText(source: string): boolean {
-  return /\bfile\s*\.\s*(?:section|codeblock)\b/.test(source);
+  return /\bfile\s*\.\s*section\b/.test(source);
 }
 
 export { DEFAULT_CARD_SIZE, type RowHeight, type ViewDisplay } from "./display";
@@ -289,19 +289,16 @@ export const DEFAULT_PAGE_SIZE = 50;
 
 const FILE_PROPERTIES = ["name", "basename", "path", "folder", "ext", "size", "mtime", "ctime", "tags"];
 
-function label(base: BaseConfig, ref: PropertyRef): string {
-  return base.properties[ref.id]?.displayName ?? base.properties[`note.${ref.id}`]?.displayName ?? (ref.ns === "file" ? noteTextLabel(ref.name) : undefined) ?? ref.name;
+/** "Text › text block" for file.section("Text > ```text"). */
+function sectionLabel(id: string): string | undefined {
+  const path = sectionArg(id);
+  return path ? pathLabel(path) : undefined;
 }
 
-/** A column's name: "Text" for section("Text"), "text block" for codeblock("text"), "Text: text block" with a heading. */
-function noteTextLabel(name: string): string | undefined {
-  const parsed = noteTextArgs(name);
-  if (!parsed) return undefined;
-  const [first, heading] = parsed.args;
-  if (parsed.fn === "section") return first || undefined;
-  const block = first ? `${first} block` : "code block";
-  return heading ? `${heading}: ${block}` : block;
+function label(base: BaseConfig, ref: PropertyRef): string {
+  return base.properties[ref.id]?.displayName ?? base.properties[`note.${ref.id}`]?.displayName ?? (ref.ns === "file" ? sectionLabel(ref.id) : undefined) ?? ref.name;
 }
+
 
 function displayText(v: unknown): string {
   if (v === null || v === undefined) return "";

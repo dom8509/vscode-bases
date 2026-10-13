@@ -18,7 +18,7 @@ import MarkdownIt from "markdown-it";
 import { outline, type OutlineItem } from "../src/core/chapters";
 import { entryParts } from "../src/core/document";
 import { parseExpr } from "../src/core/expr";
-import { noteTextArgs, noteTextId } from "../src/core/sections";
+import { parsePath, sectionArg, sectionId } from "../src/core/sections";
 import { icon, type IconName } from "./icons";
 import type { BaseOp, EditTarget, FromWebview, IndexProgress, SortSpec, ToWebview, UiEdit, UiState, ViewResult } from "../src/protocol";
 
@@ -704,17 +704,17 @@ function propertiesPanel(): HTMLElement {
   const matchesQuery = (p: PropertyInfo) => !q || p.id.toLowerCase().includes(q) || p.label.toLowerCase().includes(q);
 
   const item = (p: PropertyInfo, visible: boolean) => {
-    const parts = p.ns === "file" ? noteTextArgs(p.id.slice("file.".length)) : undefined;
+    const path = p.ns === "file" ? sectionArg(p.id) : undefined;
     const formula = p.ns === "formula" ? p.id.slice("formula.".length) : undefined;
     const edit = () => {
       if (formula !== undefined) formulaDialog(formula);
-      else if (parts) noteTextDialog(parts.fn, parts.args, p.id);
+      else if (path !== undefined) sectionDialog(path, p.id);
     };
     const box = el("input", { type: "checkbox" });
     box.checked = visible;
     box.onchange = () => setOrder(visible ? order.filter((id) => id !== p.id) : [...order, p.id]);
-    const name = parts
-      ? el("span", { class: "prop-name ns-file" }, el("span", { class: "prop-kind" }, icon(parts.fn === "section" ? "heading" : "code")), p.label)
+    const name = path !== undefined
+      ? el("span", { class: "prop-name ns-file" }, el("span", { class: "prop-kind" }, icon(/(?:`{3}|~{3})[^>]*$/.test(path) ? "code" : "heading")), p.label)
       : formula !== undefined
         ? el("span", { class: "prop-name ns-formula" }, el("span", { class: "prop-kind" }, icon("sigma")), formula)
         : el("span", { class: `prop-name ns-${p.ns}` }, propLabel(p));
@@ -723,7 +723,7 @@ function propertiesPanel(): HTMLElement {
       box,
       name,
     );
-    if (formula !== undefined || parts) {
+    if (formula !== undefined || path !== undefined) {
       li.append(iconButton("pencil", undefined, edit, "prop-edit", formula !== undefined ? "Edit formula" : "Edit"));
       name.ondblclick = edit;
     }
@@ -759,8 +759,7 @@ function propertiesPanel(): HTMLElement {
     el("ul", { class: "props" }, ...shown.filter(matchesQuery).map((p) => item(p, true)), ...hidden.filter(matchesQuery).map((p) => item(p, false))),
     el("div", { class: "panel-footer" },
       iconButton("plus", "Add formula", () => formulaDialog(undefined), "add", "A column computed from an expression"),
-      iconButton("plus", "Add section", () => noteTextDialog("section", [], undefined), "add", "A column with the text under a heading of each note"),
-      iconButton("plus", "Add code block", () => noteTextDialog("codeblock", [], undefined), "add", "A column with a code block of each note")),
+      iconButton("plus", "Add section", () => sectionDialog("", undefined), "add", "A column with a part of each note: the text under a heading, or a code block")),
   );
 }
 
@@ -855,7 +854,7 @@ function editDialog(opts: {
 }
 
 const FUNCTIONS = ["if", "now", "today", "date", "number", "list", "min", "max"];
-const FILE_FUNCTIONS = ["hasTag", "inFolder", "hasProperty", "hasLink", "section", "codeblock", "links", "backlinks"];
+const FILE_FUNCTIONS = ["hasTag", "inFolder", "hasProperty", "hasLink", "section", "links", "backlinks"];
 const METHODS = ["contains", "containsAll", "containsAny", "startsWith", "endsWith", "lower", "upper", "trim", "replace", "split", "slice", "join", "unique", "sort", "reverse", "isEmpty", "isTruthy", "isType", "toString", "length", "round", "floor", "ceil", "abs", "toFixed", "format", "year", "month", "day"];
 
 /** What can be written where the caret is: properties, functions, and methods after a dot. */
@@ -972,27 +971,31 @@ function formulaDialog(name: string | undefined): void {
   });
 }
 
-/** Adds a section or code block column (id undefined), or changes which one a column shows. */
-function noteTextDialog(fn: "section" | "codeblock", args: string[], id: string | undefined): void {
+/** Adds a column with a part of each note (id undefined), or changes which part a column shows. */
+function sectionDialog(path: string, id: string | undefined): void {
   const r = result!;
   const order = r.view.order;
-  const fields: DialogField[] = fn === "section"
-    ? [{ label: "Heading", value: args[0] ?? "", placeholder: "e.g. Text or ## Text", hint: "The column shows the text under this heading, up to the next heading of its level." }]
-    : [
-      { label: "Language", value: args[0] ?? "", placeholder: "e.g. text", hint: "The first code block in this language; empty for any block." },
-      { label: "Under heading", value: args[1] ?? "", placeholder: "optional, e.g. Text", hint: "Only a block under this heading; empty for the whole note." },
-    ];
   editDialog({
-    title: `${id ? "Edit" : "Add"} ${fn === "section" ? "section" : "code block"}`,
-    fields,
-    check: (values) => {
-      if (fn === "section" && !values[0]) return "Name the heading";
-      const next = noteTextId(fn, values);
+    title: id ? "Edit section" : "Add section",
+    fields: [{
+      label: "Path",
+      value: path,
+      placeholder: "e.g. Text > Details > ```text",
+      hint: "Headings from the outside in, separated by >; each is looked for under the one before. End with ```text for the first text code block in it, ``` for any block, ```text[2] for the second.",
+    }],
+    check: ([value]) => {
+      if (!value) return "Name a heading or a code block";
+      try {
+        parsePath(value);
+      } catch (e) {
+        return (e as Error).message;
+      }
+      const next = sectionId(value);
       if (next !== id && order.includes(next)) return "This column is already shown";
       return undefined;
     },
-    save: (values) => {
-      const next = noteTextId(fn, values);
+    save: ([value]) => {
+      const next = sectionId(value!);
       ops({ op: "setView", index: r.viewIndex, key: "order", value: id ? order.map((x) => (x === id ? next : x)) : [...order, next] });
     },
     remove: id ? { label: "Remove column", run: () => ops({ op: "setView", index: r.viewIndex, key: "order", value: order.filter((x) => x !== id) }) } : undefined,

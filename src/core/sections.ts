@@ -1,5 +1,6 @@
-// Parts of a note's text, for file.section(...) and file.codeblock(...): the
-// text under a heading, and the content of a fenced code block.
+// Parts of a note's text, for file.section(...): a path from heading to
+// heading, ending in a heading or a fenced code block, written
+// "Text > Details > ```text".
 
 interface Line {
   text: string;
@@ -56,15 +57,14 @@ export function section(body: string, heading: string): string | undefined {
 }
 
 /**
- * The content of the first fenced code block whose language is `lang`
- * (any block when `lang` is empty), without the fences; undefined when there
- * is none. With a heading, only the text under that heading is searched.
+ * The content of the `index`th (from 1) fenced code block whose language is
+ * `lang` (any block when `lang` is empty), without the fences; undefined when
+ * there is none.
  */
-export function codeblock(body: string, lang: string, heading?: string): string | undefined {
-  const text = heading === undefined || heading === "" ? body : section(body, heading);
-  if (text === undefined) return undefined;
+export function codeblock(text: string, lang: string, index = 1): string | undefined {
   const want = lang.trim().toLowerCase();
   const all = text.split(/\r?\n/);
+  let seen = 0;
   for (let i = 0; i < all.length; i++) {
     const open = FENCE.exec(all[i]!);
     if (!open) continue;
@@ -76,26 +76,68 @@ export function codeblock(body: string, lang: string, heading?: string): string 
       if (close && close[1]![0] === fence[0] && close[1]!.length >= fence.length && close[2]!.trim() === "") break;
       j++;
     }
-    if (want === "" || info === want) return all.slice(i + 1, j).join("\n");
+    if ((want === "" || info === want) && ++seen === index) return all.slice(i + 1, j).join("\n");
     i = j;
   }
   return undefined;
 }
 
-/** The arguments of section(...) or codeblock(...) when they are plain strings. */
-export function noteTextArgs(name: string): { fn: "section" | "codeblock"; args: string[] } | undefined {
-  const m = /^(section|codeblock)\((.*)\)$/s.exec(name);
+/** One step of a section path: a heading, or a code block that ends the path. */
+export type PathStep =
+  | { kind: "heading"; title: string; level?: number }
+  | { kind: "code"; lang: string; index: number };
+
+/**
+ * Reads a path: steps separated by ">" ("\>" is a ">" in a heading). A step
+ * is a heading ("Text" or "## Text"), each looked for under the one before,
+ * or, as the last step, a code block: "```text", "```" for any language, and
+ * "```text[2]" for the second one.
+ */
+export function parsePath(path: string): PathStep[] {
+  const raw = path.split(/(?<!\\)>/).map((s) => s.replace(/\\>/g, ">").trim());
+  if (raw.some((s) => s === "")) throw new Error("A step of the path is empty");
+  return raw.map((step, i) => {
+    const code = /^(`{3,}|~{3,})\s*([^\s[\]]*)\s*(?:\[(\d+)\])?$/.exec(step);
+    if (!code) return { kind: "heading" as const, ...headingQuery(step) };
+    if (i !== raw.length - 1) throw new Error("A code block ends the path");
+    const index = code[3] === undefined ? 1 : Number(code[3]);
+    if (index < 1) throw new Error("Code blocks count from 1");
+    return { kind: "code" as const, lang: code[2]!.toLowerCase(), index };
+  });
+}
+
+/** The part of a note a path names; undefined when the note has none. */
+export function sectionPath(body: string, path: string): string | undefined {
+  let text: string | undefined = body;
+  for (const step of parsePath(path)) {
+    if (text === undefined) return undefined;
+    text = step.kind === "heading" ? section(text, step.level ? `${"#".repeat(step.level)} ${step.title}` : step.title) : codeblock(text, step.lang, step.index);
+  }
+  return text;
+}
+
+/** A path as a column name: "Text › Details › text block". */
+export function pathLabel(path: string): string {
+  try {
+    return parsePath(path).map((s) => (s.kind === "heading" ? s.title : `${s.lang || "code"} block${s.index > 1 ? ` ${s.index}` : ""}`)).join(" › ");
+  } catch {
+    return path;
+  }
+}
+
+/** The path of a file.section("...") column; undefined for any other column. */
+export function sectionArg(id: string): string | undefined {
+  const m = /^file\.section\((.*)\)$/s.exec(id);
   if (!m) return undefined;
   try {
-    const args: unknown = JSON.parse(`[${m[2]}]`);
-    return Array.isArray(args) && args.every((a) => typeof a === "string") ? { fn: m[1] as "section" | "codeblock", args } : undefined;
+    const arg: unknown = JSON.parse(m[1]!);
+    return typeof arg === "string" ? arg : undefined;
   } catch {
     return undefined;
   }
 }
 
-/** The id of a column that shows a section or code block: file.section("Text"), file.codeblock("text", "Text"). */
-export function noteTextId(fn: "section" | "codeblock", args: string[]): string {
-  const used = fn === "codeblock" && !args[1] ? args.slice(0, 1) : args;
-  return `file.${fn}(${used.map((a) => JSON.stringify(a)).join(", ")})`;
+/** The id of the column that shows a path: file.section("Text > ```text"). */
+export function sectionId(path: string): string {
+  return `file.section(${JSON.stringify(path)})`;
 }

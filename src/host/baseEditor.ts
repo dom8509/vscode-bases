@@ -331,7 +331,7 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
   }
 
   /** Asks for a name, writes the note in the folder of `bases.newNoteFolder` (or the view's), and opens it. */
-  /** The text of every Markdown file, when the base reads it (file.section, file.codeblock); else undefined. */
+  /** The text of every Markdown file, when the base reads it (file.section); else undefined. */
   private async bodies(source: string): Promise<Map<string, string> | undefined> {
     if (!usesNoteText(source)) return undefined;
     const out = new Map<string, string>();
