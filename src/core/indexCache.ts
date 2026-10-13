@@ -10,10 +10,9 @@
 // before a new snapshot is ignored.
 
 import type { SourceKind } from "./record";
-import type { Outline } from "./sections";
 
 /** Bump when parseRecord changes what it produces, so old caches are dropped. */
-export const CACHE_VERSION = 3;
+export const CACHE_VERSION = 2;
 
 export interface CacheEntry {
   mtime: number;
@@ -23,7 +22,6 @@ export interface CacheEntry {
   properties: Record<string, unknown>;
   tags: string[];
   readOnly?: string;
-  outline?: Outline;
 }
 
 export interface Snapshot {

@@ -289,39 +289,7 @@ export const DEFAULT_PAGE_SIZE = 50;
 const FILE_PROPERTIES = ["name", "basename", "path", "folder", "ext", "size", "mtime", "ctime", "tags"];
 
 function label(base: BaseConfig, ref: PropertyRef): string {
-  return base.properties[ref.id]?.displayName ?? base.properties[`note.${ref.id}`]?.displayName ?? (ref.ns === "file" ? noteTextLabel(ref.name) : undefined) ?? ref.name;
-}
-
-/** "Text" for section("Text"), "text block" for codeblock("text"), "Text: text block" with a heading. */
-function noteTextLabel(name: string): string | undefined {
-  const m = /^(section|codeblock)\((.*)\)$/s.exec(name);
-  if (!m) return undefined;
-  let args: unknown;
-  try {
-    args = JSON.parse(`[${m[2]}]`);
-  } catch {
-    return undefined;
-  }
-  if (!Array.isArray(args) || !args.every((a) => typeof a === "string")) return undefined;
-  const [first, heading] = args as string[];
-  if (m[1] === "section") return first;
-  const block = first ? `${first} block` : "code block";
-  return heading ? `${heading}: ${block}` : block;
-}
-
-/** The columns file.section and file.codeblock can show for these files: each heading and each code block's language. */
-function noteTextProperties(records: FileRecord[]): string[] {
-  const out = new Set<string>();
-  const str = JSON.stringify;
-  for (const rec of records) {
-    if (!rec.outline) continue;
-    for (const h of rec.outline.headings) out.add(`file.section(${str(h)})`);
-    for (const b of rec.outline.blocks) {
-      out.add(`file.codeblock(${str(b.lang)})`);
-      if (b.heading !== undefined) out.add(`file.codeblock(${str(b.lang)}, ${str(b.heading)})`);
-    }
-  }
-  return [...out];
+  return base.properties[ref.id]?.displayName ?? base.properties[`note.${ref.id}`]?.displayName ?? ref.name;
 }
 
 function displayText(v: unknown): string {
@@ -449,7 +417,6 @@ export function computeView(base: BaseConfig, records: Iterable<FileRecord>, opt
     : [];
   const properties: PropertyInfo[] = [
     ...[...FILE_PROPERTIES, ...linkProperties].map((n) => propertyRef(`file.${n}`)),
-    ...noteTextProperties(hits.map((h) => h.rec)).map(propertyRef),
     ...propertyNames.map(propertyRef),
     ...Object.keys(base.formulas).map((n) => propertyRef(`formula.${n}`)),
   ].map((ref) => ({ id: ref.id, label: label(base, ref), ns: ref.ns }));

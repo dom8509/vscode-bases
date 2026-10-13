@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { computeView, parseBase, usesNoteText } from "../src/core/base";
 import { bodyText } from "../src/core/record";
-import { codeblock, outline, section } from "../src/core/sections";
+import { codeblock, section } from "../src/core/sections";
 import { record } from "./helpers";
 
 const NOTE = `# Login
@@ -81,24 +81,5 @@ views:
     expect(usesNoteText('order: [file.section("Text")]')).toBe(true);
     expect(usesNoteText("x: 'file.codeblock(\"text\")'")).toBe(true);
     expect(usesNoteText("order: [file.name]")).toBe(false);
-  });
-});
-
-describe("note text in the property menus", () => {
-  it("lists the headings and code blocks of a note", () => {
-    expect(outline(NOTE)).toEqual({
-      headings: ["Login", "Text", "Detail", "Test"],
-      blocks: [{ lang: "text", heading: "Text" }, { lang: "text", heading: "Test" }, { lang: "gherkin", heading: "Test" }],
-    });
-  });
-
-  it("offers them as columns, named by heading and language", () => {
-    const rec = record("req/login.md", `---\nstatus: open\n---\n${NOTE}`);
-    const result = computeView(parseBase("views:\n  - type: table\n    name: T\n"), [rec], { viewIndex: 0 });
-    const byId = new Map(result.properties.map((p) => [p.id, p.label]));
-    expect(byId.get('file.section("Text")')).toBe("Text");
-    expect(byId.get('file.codeblock("text")')).toBe("text block");
-    expect(byId.get('file.codeblock("text", "Text")')).toBe("Text: text block");
-    expect(byId.has('file.section("not a heading")')).toBe(false);
   });
 });
