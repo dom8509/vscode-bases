@@ -2,6 +2,7 @@
 // filter, formulas, columns, sort and limit.
 
 import { parse } from "yaml";
+import { noteTextArgs } from "./sections";
 import { compare, ExprError, run, toDate, truthy, type EvalContext, type FileInfo } from "./expr";
 import { compareGroups } from "./chapters";
 import { displayOf, type ViewDisplay } from "./display";
@@ -289,7 +290,17 @@ export const DEFAULT_PAGE_SIZE = 50;
 const FILE_PROPERTIES = ["name", "basename", "path", "folder", "ext", "size", "mtime", "ctime", "tags"];
 
 function label(base: BaseConfig, ref: PropertyRef): string {
-  return base.properties[ref.id]?.displayName ?? base.properties[`note.${ref.id}`]?.displayName ?? ref.name;
+  return base.properties[ref.id]?.displayName ?? base.properties[`note.${ref.id}`]?.displayName ?? (ref.ns === "file" ? noteTextLabel(ref.name) : undefined) ?? ref.name;
+}
+
+/** A column's name: "Text" for section("Text"), "text block" for codeblock("text"), "Text: text block" with a heading. */
+function noteTextLabel(name: string): string | undefined {
+  const parsed = noteTextArgs(name);
+  if (!parsed) return undefined;
+  const [first, heading] = parsed.args;
+  if (parsed.fn === "section") return first || undefined;
+  const block = first ? `${first} block` : "code block";
+  return heading ? `${heading}: ${block}` : block;
 }
 
 function displayText(v: unknown): string {

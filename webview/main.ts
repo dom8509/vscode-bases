@@ -17,6 +17,7 @@ import {
 import MarkdownIt from "markdown-it";
 import { outline, type OutlineItem } from "../src/core/chapters";
 import { entryParts } from "../src/core/document";
+import { noteTextArgs, noteTextId } from "../src/core/sections";
 import { icon, type IconName } from "./icons";
 import type { BaseOp, EditTarget, FromWebview, IndexProgress, SortSpec, ToWebview, UiEdit, UiState, ViewResult } from "../src/protocol";
 
@@ -696,20 +697,43 @@ function propertiesPanel(): HTMLElement {
   const order = r.view.order;
   const setOrder = (next: string[]) => ops({ op: "setView", index: r.viewIndex, key: "order", value: next });
   const q = propertySearch.trim().toLowerCase();
-  const shown = order.map((id) => r.properties.find((p) => p.id === id) ?? { id, label: id, ns: "note" as const });
+  const shown = order.map((id): PropertyInfo => r.properties.find((p) => p.id === id) ?? { id, label: r.columns.find((c) => c.id === id)?.label ?? id, ns: id.startsWith("file.") ? "file" : "note" });
   // The shown ones keep their column order (drag to change it); the rest go A to Z.
-  const hidden = r.properties.filter((p) => !order.includes(p.id)).sort((a, b) => byName(a.id, b.id));
+  // file.section and file.codeblock can be added any number of times: ticked, each asks for its heading or language.
+  const noteText: PropertyInfo[] = [{ id: "file.section", label: "section", ns: "file" }, { id: "file.codeblock", label: "codeblock", ns: "file" }];
+  const hidden = [...r.properties.filter((p) => !order.includes(p.id)), ...noteText].sort((a, b) => byName(a.id, b.id));
   const matchesQuery = (p: PropertyInfo) => !q || p.id.toLowerCase().includes(q) || p.label.toLowerCase().includes(q);
 
   const item = (p: PropertyInfo, visible: boolean) => {
     const box = el("input", { type: "checkbox" });
     box.checked = visible;
-    box.onchange = () => setOrder(visible ? order.filter((id) => id !== p.id) : [...order, p.id]);
+    box.onchange = () => {
+      if (visible) setOrder(order.filter((id) => id !== p.id));
+      else if (p.id === "file.section" || p.id === "file.codeblock") {
+        const id = `${p.id}("")`;
+        if (!order.includes(id)) setOrder([...order, id]);
+      } else setOrder([...order, p.id]);
+    };
     const li = el("li", { class: visible ? "prop visible" : "prop", title: p.id },
       el("span", { class: "grip" }, ...(visible ? [icon("grip")] : [])),
       box,
-      el("span", { class: `prop-name ns-${p.ns}` }, propLabel(p)),
+      el("span", { class: `prop-name ns-${p.ns}` }, /^file\.(?:section|codeblock)\(/.test(p.id) ? p.id.slice(0, p.id.indexOf("(")) : propLabel(p)),
     );
+    const parts = visible && p.ns === "file" ? noteTextArgs(p.id.slice("file.".length)) : undefined;
+    if (parts) {
+      // Changing the heading or language changes which column this is.
+      const set = (i: number, v: string) => {
+        const args = [...parts.args];
+        args[i] = v.trim();
+        const next = noteTextId(parts.fn, args);
+        if (next !== p.id && !order.includes(next)) setOrder(order.map((id) => (id === p.id ? next : id)));
+      };
+      li.append(parts.fn === "section"
+        ? textInput(`section-${p.id}`, parts.args[0] ?? "", (v) => set(0, v), { class: "small", placeholder: "heading", title: "The heading whose text the column shows" })
+        : el("span", { class: "row" },
+          textInput(`lang-${p.id}`, parts.args[0] ?? "", (v) => set(0, v), { class: "narrow", placeholder: "language", title: "The language of the code block, e.g. text; empty for any block" }),
+          textInput(`under-${p.id}`, parts.args[1] ?? "", (v) => set(1, v), { class: "narrow", placeholder: "under heading", title: "Only a block under this heading; empty for the whole note" })));
+    }
     if (p.ns === "formula") {
       const name = p.id.slice("formula.".length);
       li.append(

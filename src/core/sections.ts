@@ -45,6 +45,7 @@ function headingQuery(heading: string): { title: string; level?: number } {
  */
 export function section(body: string, heading: string): string | undefined {
   const want = headingQuery(heading);
+  if (want.title === "") return undefined;
   const all = lines(body);
   const start = all.findIndex((l) => l.level !== undefined && l.title!.toLowerCase() === want.title.toLowerCase() && (want.level === undefined || l.level === want.level));
   if (start < 0) return undefined;
@@ -79,4 +80,22 @@ export function codeblock(body: string, lang: string, heading?: string): string 
     i = j;
   }
   return undefined;
+}
+
+/** The arguments of section(...) or codeblock(...) when they are plain strings. */
+export function noteTextArgs(name: string): { fn: "section" | "codeblock"; args: string[] } | undefined {
+  const m = /^(section|codeblock)\((.*)\)$/s.exec(name);
+  if (!m) return undefined;
+  try {
+    const args: unknown = JSON.parse(`[${m[2]}]`);
+    return Array.isArray(args) && args.every((a) => typeof a === "string") ? { fn: m[1] as "section" | "codeblock", args } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The id of a column that shows a section or code block: file.section("Text"), file.codeblock("text", "Text"). */
+export function noteTextId(fn: "section" | "codeblock", args: string[]): string {
+  const used = fn === "codeblock" && !args[1] ? args.slice(0, 1) : args;
+  return `file.${fn}(${used.map((a) => JSON.stringify(a)).join(", ")})`;
 }

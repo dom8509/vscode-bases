@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { computeView, parseBase, usesNoteText } from "../src/core/base";
 import { bodyText } from "../src/core/record";
-import { codeblock, section } from "../src/core/sections";
+import { codeblock, noteTextArgs, noteTextId, section } from "../src/core/sections";
 import { record } from "./helpers";
 
 const NOTE = `# Login
@@ -81,5 +81,31 @@ views:
     expect(usesNoteText('order: [file.section("Text")]')).toBe(true);
     expect(usesNoteText("x: 'file.codeblock(\"text\")'")).toBe(true);
     expect(usesNoteText("order: [file.name]")).toBe(false);
+  });
+});
+
+describe("section and code block columns", () => {
+  it("reads and writes their ids", () => {
+    expect(noteTextArgs('section("Text")')).toEqual({ fn: "section", args: ["Text"] });
+    expect(noteTextArgs('codeblock("text", "Text")')).toEqual({ fn: "codeblock", args: ["text", "Text"] });
+    expect(noteTextArgs("name")).toBeUndefined();
+    expect(noteTextId("section", ["Text"])).toBe('file.section("Text")');
+    expect(noteTextId("codeblock", ["text", ""])).toBe('file.codeblock("text")');
+    expect(noteTextId("codeblock", ["text", 'A "b"'])).toBe('file.codeblock("text", "A \\"b\\"")');
+  });
+
+  it("names the column by heading and language, and is empty without a heading", () => {
+    const text = `---\nstatus: open\n---\n${NOTE}`;
+    const rec = record("req/login.md", text);
+    const base = parseBase(`
+views:
+  - type: table
+    name: T
+    order: ['file.section("Text")', 'file.codeblock("text")', 'file.codeblock("text", "Test")', 'file.section("")']
+`);
+    const result = computeView(base, [rec], { viewIndex: 0, bodies: new Map([[rec.uri, bodyText(text, "markdown")]]) });
+    expect(result.columns.map((c) => c.label)).toEqual(["Text", "text block", "Test: text block", 'section("")']);
+    expect(result.rows[0]!.cells['file.section("")']).toBeNull();
+    expect(result.rows[0]!.cells['file.codeblock("text", "Test")']).toBe("other block");
   });
 });

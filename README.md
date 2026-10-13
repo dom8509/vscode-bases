@@ -172,9 +172,11 @@ naming what is unsupported, rather than silently matching nothing.
   the same or a higher level. `file.codeblock("text")` is the content of
   the first ```` ```text ```` block; `file.codeblock("text", "Text")` looks
   only under the heading `Text`; `""` as language takes any block. Both are
-  empty when the note has none. Use them as a column
-  (`order: [file.name, 'file.section("Text")']`) or in a formula, and give
-  the column a name under `properties`. Choose a taller *row height* to see
+  empty when the note has none. In *Properties*, tick `file.section` or
+  `file.codeblock` like `file.name` and type the heading (or the language,
+  and a heading if you like) next to it; tick it again for another column.
+  Or write it in `order` (`order: [file.name, 'file.section("Text")']`) or
+  in a formula, and give the column a name under `properties`. Choose a taller *row height* to see
   more than one line.
 - **Operators:** `== != < <= > >= && || ! + - * / %`, parentheses, list literals
 - **Functions:** `if`, `now`, `today`, `date`, `number`, `list`, `min`, `max`
