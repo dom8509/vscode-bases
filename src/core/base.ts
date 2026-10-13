@@ -165,6 +165,8 @@ export interface ViewResult {
   view: { name: string; type: string; order: string[]; sort: SortSpec[]; limit?: number; groupBy?: GroupBy; display: ViewDisplay };
   /** The column of the groupBy property, when the view has one; its values are in every row's cells. */
   group?: Column;
+  /** Some group value splits into levels ("3.2", "a/b", "a > b"), so the levels setting changes something. */
+  groupNested?: boolean;
   baseFilter: FilterGroup;
   viewFilter: FilterGroup;
   /** The filters as written in the file, to tell whether an edit in progress is still current. */
@@ -434,6 +436,7 @@ export function computeView(base: BaseConfig, records: Iterable<FileRecord>, opt
     viewIndex,
     view: { name: view.name, type: view.type, order, sort, limit: typeof view.limit === "number" ? view.limit : undefined, groupBy, display },
     group: groupRef && columnOf(groupRef),
+    groupNested: groupFirst !== undefined && keyed.some((k) => (Array.isArray(k.group) ? k.group : [k.group]).some((v) => typeof v === "string" || typeof v === "number" ? /[./>]/.test(String(v)) : false)),
     baseFilter: toModel(base.filters),
     viewFilter: toModel(view.filters),
     rawFilters: { base: base.filters ?? null, view: view.filters ?? null },

@@ -338,3 +338,12 @@ views:
     expect(text).not.toContain("cardSize");
   });
 });
+
+describe("group levels", () => {
+  it("tells when a group value can split into levels", () => {
+    const recs = [record("a.md", "---\nchapter: \"3.2\"\nstatus: open\n---\n"), record("b.md", "---\nchapter: 4\nstatus: done\n---\n")];
+    const view = (property: string) => computeView(parseBase(`views:\n  - type: table\n    name: T\n    groupBy:\n      property: ${property}\n      direction: ASC\n`), recs, { viewIndex: 0 });
+    expect(view("chapter").groupNested).toBe(true);
+    expect(view("status").groupNested).toBe(false);
+  });
+});

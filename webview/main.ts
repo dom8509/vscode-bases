@@ -568,8 +568,8 @@ function groupPanel(): HTMLElement {
       select("group-d", [{ value: "ASC", label: "Ascending" }, { value: "DESC", label: "Descending" }], g.direction ?? "ASC", (v) => setGroup({ ...g, direction: v })),
       iconButton("x", undefined, () => setGroup(undefined), "", "Remove group"),
     ));
-    // How a value splits into levels of headings; a board has lanes, not levels.
-    if (r.view.type !== "kanban") {
+    // How a value splits into levels of headings: only when some value can split (or a rule is set), and not on a board.
+    if (r.view.type !== "kanban" && (r.groupNested || g.separator !== undefined)) {
       const sep = g.separator ?? ".";
       const known = LEVEL_RULES.some((l) => l.value === sep);
       rows.push(el("label", { class: "field", title: "Which part of a value starts a deeper heading" }, el("span", {}, "Levels"),

@@ -35,7 +35,7 @@ at once.
   groups a table, list or document under a heading per value: *Group by*
   picks the property, then its direction, and × removes the group. *Levels*
   says how a value splits into nested headings (`groupBy.separator` in the
-  file):
+  file); it shows only when some value contains `.`, `/` or `>`:
   - *Chapter numbers* (the default): `3.2` or `3.2 Anmeldung` is chapter 3.2
     under chapter 3; they sort as 3 < 3.2 < 3.10 < 4, and a chapter's title
     is taken from any value that names it (`3 Funktionen`).
