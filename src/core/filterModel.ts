@@ -174,3 +174,22 @@ function fromNode(node: FilterNode): Filter | undefined {
     }
   }
 }
+
+/**
+ * The filter tree with the node at `from` moved into the group at `into`,
+ * before its child `index`. Paths are child indexes from the root.
+ * Undefined when the move makes no sense: a group into itself or its own children.
+ */
+export function moveFilter(root: FilterGroup, from: number[], into: number[], index: number): FilterGroup | undefined {
+  if (from.length === 0 || (into.length >= from.length && from.every((i, k) => into[k] === i))) return undefined;
+  const next = structuredClone(root);
+  const at = (path: number[]): FilterNode | undefined => path.reduce<FilterNode | undefined>((n, i) => (n?.kind === "group" ? n.children[i] : undefined), next);
+  const source = at(from.slice(0, -1));
+  const target = at(into);
+  if (source?.kind !== "group" || target?.kind !== "group") return undefined;
+  const i = from.at(-1)!;
+  const [node] = source.children.splice(i, 1);
+  if (!node) return undefined;
+  target.children.splice(source === target && i < index ? index - 1 : index, 0, node);
+  return next;
+}

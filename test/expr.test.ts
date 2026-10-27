@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ExprError, run, type EvalContext } from "../src/core/expr";
+import { ExprError, naturalCompare, run, type EvalContext } from "../src/core/expr";
 import { fileInfo } from "./helpers";
 
 function ctx(note: Record<string, unknown> = {}, path = "projects/alpha/plan.md"): EvalContext {
@@ -72,5 +72,18 @@ describe("expressions", () => {
     expect(() => run("file.asLink(x)", ctx())).toThrow(/Unsupported: file.asLink/);
     expect(() => run("link(x)", ctx())).toThrow(ExprError);
     expect(() => run("a ==", ctx())).toThrow(/Unexpected end/);
+  });
+});
+
+describe("naturalCompare", () => {
+  it("puts a chapter number before its sub-chapters", () => {
+    const want = ["2.3.0-7", "2.3.0-7.0-1", "2.3.0-10", "2.3.0-10.0-4", "2.3.0-11", "2.3.0-11.0-1", "2.3.0-11.0-11"];
+    expect([...want].reverse().sort(naturalCompare)).toEqual(want);
+  });
+
+  it("keeps that order with titles and file extensions", () => {
+    expect(["2.3.0-7.0-1.md", "2.3.0-7.md"].sort(naturalCompare)).toEqual(["2.3.0-7.md", "2.3.0-7.0-1.md"]);
+    expect(["2.3.0-7.0-1 Details", "2.3.0-7 Überblick"].sort(naturalCompare)).toEqual(["2.3.0-7 Überblick", "2.3.0-7.0-1 Details"]);
+    expect(["b", "a10", "a2", "A1"].sort(naturalCompare)).toEqual(["A1", "a2", "a10", "b"]);
   });
 });

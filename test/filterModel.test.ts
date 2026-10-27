@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { conditionExpr, fromModel, parseCondition, propertyExpr, toModel, type FilterGroup, type Operator } from "../src/core/filterModel";
+import { conditionExpr, fromModel, moveFilter, parseCondition, propertyExpr, toModel, type FilterGroup, type Operator } from "../src/core/filterModel";
 import { run, type EvalContext } from "../src/core/expr";
 import { fileInfo } from "./helpers";
 
@@ -76,5 +76,33 @@ describe("filter model", () => {
       ["file.folder", "inFolder", "docs"], ["file.tags", "hasTag", "project"], ["file.ext", "isNot", "yaml"],
     ];
     for (const [property, op, value] of yes) expect(run(conditionExpr({ property, op, value }), ctx)).toBe(true);
+  });
+});
+
+describe("moveFilter", () => {
+  const cond = (value: string) => ({ kind: "cond" as const, property: "status", op: "is" as const, value });
+  const tree = (): FilterGroup => ({ kind: "group", conj: "and", children: [cond("a"), cond("b"), { kind: "group", conj: "or", children: [cond("c")] }] });
+  const values = (g: FilterGroup): unknown => g.children.map((c) => (c.kind === "group" ? values(c) : c.kind === "cond" ? c.value : c.expr));
+
+  it("reorders within a group", () => {
+    expect(values(moveFilter(tree(), [0], [], 2)!)).toEqual(["b", "a", ["c"]]);
+    expect(values(moveFilter(tree(), [1], [], 0)!)).toEqual(["b", "a", ["c"]]);
+    expect(values(moveFilter(tree(), [0], [], 3)!)).toEqual(["b", ["c"], "a"]);
+  });
+
+  it("moves into and out of a nested group", () => {
+    expect(values(moveFilter(tree(), [0], [2], 0)!)).toEqual(["b", ["a", "c"]]);
+    expect(values(moveFilter(tree(), [2, 0], [], 0)!)).toEqual(["c", "a", "b", []]);
+  });
+
+  it("never puts a group into itself", () => {
+    expect(moveFilter(tree(), [2], [2], 0)).toBeUndefined();
+    expect(moveFilter(tree(), [], [], 0)).toBeUndefined();
+  });
+
+  it("leaves the original tree alone", () => {
+    const t = tree();
+    moveFilter(t, [0], [], 3);
+    expect(values(t)).toEqual(["a", "b", ["c"]]);
   });
 });
