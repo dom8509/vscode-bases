@@ -142,3 +142,33 @@ describe("line diff", () => {
     expect(lineDiff("# T\n", "---\nx: 1\n---\n# T\n")).toEqual(["@@ line 1 @@", "+---", "+x: 1", "+---", " # T"]);
   });
 });
+
+describe("tags", () => {
+  const add = (tag: string): PropertyEdit => ({ kind: "addTag", tag });
+  const remove = (tag: string): PropertyEdit => ({ kind: "removeTag", tag });
+
+  it("adds a tag to a list and keeps its style", () => {
+    expect(edit(NOTE, "md", [add("beta")])).toBe(NOTE.replace("[project, alpha]", "[project, alpha, beta]"));
+    const block = "---\ntags:\n  - a\n---\n";
+    expect(edit(block, "md", [add("#b")])).toBe("---\ntags:\n  - a\n  - b\n---\n");
+  });
+
+  it("does not add a tag the file has, whatever its case or #", () => {
+    expect(applyEdits(NOTE, "md", [add("#Project")])).toBeUndefined();
+  });
+
+  it("removes a tag, and the property with the last one", () => {
+    expect(edit(NOTE, "md", [remove("ALPHA")])).toBe(NOTE.replace("[project, alpha]", "[project]"));
+    expect(edit("---\nx: 1\ntags: [a]\n---\n", "md", [remove("a")])).toBe("---\nx: 1\n---\n");
+    expect(applyEdits(NOTE, "md", [remove("nope")])).toBeUndefined();
+  });
+
+  it("uses `tag` when the file does, and turns a string of tags into a list", () => {
+    expect(edit("---\ntag: a, b\n---\n", "md", [add("c")])).toBe("---\ntag:\n  - a\n  - b\n  - c\n---\n");
+    expect(edit("---\ntags: a b\n---\n", "md", [remove("a")])).toBe("---\ntags:\n  - b\n---\n");
+  });
+
+  it("gives a file without tags a list", () => {
+    expect(edit("# T\n", "md", [add("new")])).toBe("---\ntags:\n  - new\n---\n# T\n");
+  });
+});

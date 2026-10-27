@@ -27,7 +27,15 @@ export interface EditOutcome {
 
 function describe(edits: PropertyEdit[]): string {
   return edits
-    .map((e) => (e.kind === "set" ? `Set "${e.key}" to ${JSON.stringify(e.value)}` : e.kind === "delete" ? `Remove "${e.key}"` : `Rename "${e.from}" to "${e.to}"`))
+    .map((e) => {
+      switch (e.kind) {
+        case "set": return `Set "${e.key}" to ${JSON.stringify(e.value)}`;
+        case "delete": return `Remove "${e.key}"`;
+        case "rename": return `Rename "${e.from}" to "${e.to}"`;
+        case "addTag": return `Add tag "${e.tag}"`;
+        case "removeTag": return `Remove tag "${e.tag}"`;
+      }
+    })
     .join(", ");
 }
 
