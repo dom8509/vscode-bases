@@ -2,13 +2,16 @@
 // rewritten, through the `yaml` Document API, so comments, key order and
 // scalar styles survive.
 
-import { isMap, isScalar, isSeq, parse, parseAllDocuments, parseDocument, type Document, type ToStringOptions } from "yaml";
+import { isMap, isScalar, isSeq, parse, parseAllDocuments, parseDocument, type Document, type ToStringOptions, type YAMLMap } from "yaml";
 import { sourceKind, yamlRegion } from "./record";
 
 export type PropertyEdit =
   | { kind: "set"; key: string; value: unknown }
   | { kind: "delete"; key: string }
-  | { kind: "rename"; from: string; to: string };
+  | { kind: "rename"; from: string; to: string }
+  /** A tag in `tags` (or `tag`, when the file uses that); case and a leading `#` do not matter. */
+  | { kind: "addTag"; tag: string }
+  | { kind: "removeTag"; tag: string };
 
 export interface TextChange {
   start: number;
@@ -26,6 +29,37 @@ export function parseInputValue(input: string): unknown {
   } catch {
     return input;
   }
+}
+
+const normalTag = (t: unknown) => String(t).trim().replace(/^#/, "").toLowerCase();
+
+/**
+ * Adds or removes a tag. A list keeps its items and style; `tags: a, b`
+ * becomes a list once it changes. A list left empty is removed.
+ */
+function editTag(doc: Document, map: YAMLMap, tag: string, add: boolean): void {
+  const want = normalTag(tag);
+  if (!want) return;
+  const key = map.has("tags") || !map.has("tag") ? "tags" : "tag";
+  const node = map.get(key, true);
+  if (isSeq(node)) {
+    const has = node.items.some((i) => isScalar(i) && normalTag(i.value) === want);
+    if (add) {
+      if (!has) node.add(doc.createNode(tag.trim().replace(/^#/, "")));
+      return;
+    }
+    if (!has) return;
+    node.items = node.items.filter((i) => !(isScalar(i) && normalTag(i.value) === want));
+    if (node.items.length === 0) map.delete(key);
+    return;
+  }
+  const raw = isScalar(node) ? node.value : undefined;
+  const items = typeof raw === "string" ? raw.split(/[,\s]+/).filter(Boolean) : raw === null || raw === undefined ? [] : [String(raw)];
+  const has = items.some((t) => normalTag(t) === want);
+  if (add === has) return;
+  const next = add ? [...items, tag.trim().replace(/^#/, "")] : items.filter((t) => normalTag(t) !== want);
+  if (next.length === 0) map.delete(key);
+  else map.set(key, doc.createNode(next));
 }
 
 function applyOne(doc: Document, edit: PropertyEdit): void {
@@ -57,6 +91,10 @@ function applyOne(doc: Document, edit: PropertyEdit): void {
       if (pair && isScalar(pair.key)) pair.key.value = edit.to;
       return;
     }
+    case "addTag":
+    case "removeTag":
+      editTag(doc, map, edit.tag, edit.kind === "addTag");
+      return;
   }
 }
 

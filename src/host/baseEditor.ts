@@ -370,7 +370,7 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
     const note = newNote(base, viewIndex);
     // A column of IDs like REQ-041 gives the new note the next one (and its name); "id" is looked at first.
     const all = computeView(base, this.index.all(), { viewIndex, page: 0, pageSize: Number.MAX_SAFE_INTEGER, links: this.links.links(), bodies: await this.bodies(document.getText()) });
-    const candidates = all.columns.filter((c) => c.editable).sort((a, b) => Number(b.id.toLowerCase() === "id") - Number(a.id.toLowerCase() === "id"));
+    const candidates = all.columns.filter((c) => c.editable && !c.tags).sort((a, b) => Number(b.id.toLowerCase() === "id") - Number(a.id.toLowerCase() === "id"));
     let id: string | undefined;
     for (const c of candidates) {
       id = nextId(all.rows.map((r) => r.cells[c.id]));

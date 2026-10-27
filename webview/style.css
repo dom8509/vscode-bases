@@ -144,6 +144,23 @@ td.check {
   cursor: default;
 }
 
+/* The last column: "+" adds a property, and the column takes the room left over. */
+th.add-column,
+td.add-column {
+  width: 100%;
+  padding: 2px 6px;
+  cursor: default;
+}
+
+th.add-column .add-column-button {
+  opacity: 0.6;
+}
+
+th.add-column .add-column-button:hover,
+th.add-column .add-column-button:focus-visible {
+  opacity: 1;
+}
+
 tr:hover td {
   background: var(--vscode-list-hoverBackground);
 }

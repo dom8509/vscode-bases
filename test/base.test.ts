@@ -48,6 +48,11 @@ describe("views", () => {
     expect(view.rows[0]!.cells).toEqual({ "file.name": "gamma.md", status: "open", priority: 3, "formula.score": 30 });
   });
 
+  it("lets file.tags be edited tag by tag, with the tags in use as suggestions", () => {
+    const view = computeView(parseBase("views:\n  - type: table\n    order: [file.name, file.tags]\n"), records, { viewIndex: 0 });
+    expect(view.columns[1]).toMatchObject({ id: "file.tags", editable: true, type: "list", tags: true, suggestions: ["project"] });
+  });
+
   it("lists files by name when a view has no columns", () => {
     const view = computeView(parseBase(BASE), records, { viewIndex: 1 });
     expect(view.rows).toHaveLength(3);

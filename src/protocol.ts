@@ -9,7 +9,9 @@ export type UiEdit =
   | { kind: "set"; key: string; input: string }
   | { kind: "setValue"; key: string; value: unknown }
   | { kind: "delete"; key: string }
-  | { kind: "rename"; from: string; to: string };
+  | { kind: "rename"; from: string; to: string }
+  | { kind: "addTag"; tag: string }
+  | { kind: "removeTag"; tag: string };
 
 /** What the person is looking at: not part of the base file. */
 export interface UiState {

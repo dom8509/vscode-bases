@@ -2,7 +2,7 @@
 // what the person changed: cell values, and the base itself (views, filters,
 // columns, sort, formulas) the way Obsidian Bases lets you edit it.
 
-import type { Column, GroupBy, PropertyInfo, Row } from "../src/core/base";
+import type { Column, GroupBy, PropertyInfo, Row, ValueType } from "../src/core/base";
 import { DEFAULT_CARD_SIZE, type RowHeight } from "../src/core/display";
 import {
   CONJUNCTIONS,
@@ -389,7 +389,7 @@ function viewPanel(): HTMLElement {
     const change: BaseOp[] = [{ op: "setView", index: i, key: "type", value: type }];
     // A board needs something to group by: the first property that is not the file's.
     if (type === "kanban" && !v.groupBy) {
-      const first = (i === r.viewIndex ? r.columns.find((c) => c.editable)?.id : undefined) ?? r.propertyNames[0];
+      const first = (i === r.viewIndex ? r.columns.find((c) => c.editable && !c.tags)?.id : undefined) ?? r.propertyNames[0];
       if (first) change.push({ op: "setView", index: i, key: "groupBy", value: { property: first } });
     }
     ops(...change);
@@ -781,6 +781,7 @@ function propertiesPanel(): HTMLElement {
     filterBox,
     el("ul", { class: "props" }, ...shown.filter(matchesQuery).map((p) => item(p, true)), ...hidden.filter(matchesQuery).map((p) => item(p, false))),
     el("div", { class: "panel-footer" },
+      iconButton("plus", "Add property", () => propertyDialog(), "add", "A new column for a property of the files"),
       iconButton("plus", "Add formula", () => formulaDialog(undefined), "add", "A column computed from an expression"),
       iconButton("plus", "Add section", () => sectionDialog("", undefined), "add", "A column with a part of each note: the text under a heading, or a code block")),
   );
@@ -795,6 +796,8 @@ interface DialogField {
   hint?: string;
   /** A formula: monospace, with completions. */
   code?: boolean;
+  /** A choice instead of text. */
+  options?: { value: string; label: string }[];
 }
 
 /**
@@ -815,6 +818,11 @@ function editDialog(opts: {
     before?.focus();
   };
   const inputs = opts.fields.map((f) => {
+    if (f.options) {
+      const choice = el("select", { class: "dialog-input" }, ...f.options.map((o) => el("option", { value: o.value }, o.label)));
+      choice.value = f.value;
+      return choice;
+    }
     const input = el(f.code ? "textarea" : "input", { class: f.code ? "dialog-input code" : "dialog-input", placeholder: f.placeholder ?? "", spellcheck: "false", rows: f.code ? "3" : undefined }) as HTMLInputElement | HTMLTextAreaElement;
     input.value = f.value;
     return input;
@@ -835,6 +843,7 @@ function editDialog(opts: {
   };
   const rows = opts.fields.map((f, i) => {
     const input = inputs[i]!;
+    input.addEventListener("change", update);
     const wrap = el("label", { class: "dialog-field" }, el("span", { class: "dialog-label" }, f.label), input, ...(f.hint ? [el("span", { class: "dialog-hint" }, f.hint)] : []));
     if (f.code) wrap.append(completions(input as HTMLTextAreaElement, update));
     input.addEventListener("input", update);
@@ -873,7 +882,51 @@ function editDialog(opts: {
   update();
   const first = inputs.find((i) => !i.value) ?? inputs[inputs.length - 1]!;
   first.focus();
-  first.setSelectionRange(first.value.length, first.value.length);
+  if (!(first instanceof HTMLSelectElement)) first.setSelectionRange(first.value.length, first.value.length);
+}
+
+// A new property has no values yet, so nothing tells its type; until one is
+// written, the column takes the type it was created with.
+const PROPERTY_TYPES: { value: ValueType; label: string }[] = [
+  { value: "text", label: "Text" },
+  { value: "list", label: "List" },
+  { value: "number", label: "Number" },
+  { value: "checkbox", label: "Checkbox" },
+  { value: "date", label: "Date" },
+  { value: "datetime", label: "Date & time" },
+];
+const newTypes = new Map<string, ValueType>();
+
+function applyNewTypes(r: ViewResult): void {
+  for (const c of r.columns) {
+    const type = newTypes.get(c.id);
+    if (!type) continue;
+    if (c.type === "text" && !c.suggestions?.length) c.type = type;
+    else newTypes.delete(c.id);
+  }
+}
+
+/** Adds a column for a property, new or one the files already have, to the view. */
+function propertyDialog(): void {
+  const r = result!;
+  const order = r.view.order.length ? r.view.order : ["file.name"];
+  editDialog({
+    title: "New property",
+    fields: [
+      { label: "Name", value: "", placeholder: "status" },
+      { label: "Type", value: "text", options: PROPERTY_TYPES, hint: "Files get the property when you fill in a cell." },
+    ],
+    check: ([name]) => {
+      if (!name) return "Enter a name";
+      if (/^(?:file|formula)\./.test(name)) return "Names starting with file. or formula. are taken";
+      if (order.includes(name)) return "This view already shows it";
+      return undefined;
+    },
+    save: ([name, type]) => {
+      if (type !== "text") newTypes.set(name!, type as ValueType);
+      ops({ op: "setView", index: r.viewIndex, key: "order", value: [...order, name!] });
+    },
+  });
 }
 
 const FUNCTIONS = ["if", "now", "today", "date", "number", "list", "min", "max"];
@@ -1208,29 +1261,64 @@ function cellBox(c: Column, row: Row): HTMLElement {
  * file, once the person says so in a short dialog.
  */
 function commitValue(row: Row, c: Column, value: unknown, asYaml = false): void {
-  const empty = isEmptyValue(value);
-  const change: UiEdit = empty ? { kind: "delete", key: c.id } : asYaml ? { kind: "set", key: c.id, input: String(value) } : { kind: "setValue", key: c.id, value };
+  const change = c.tags ? tagChange(row.cells[c.id], value) : valueChange(c, value, asYaml);
+  if (!change) return;
   if (!editsSelection(row)) {
-    row.cells[c.id] = empty ? null : value;
-    edit({ uris: [row.uri] }, [change]);
+    change.show(row);
+    edit({ uris: [row.uri] }, change.edits);
     return;
   }
   const n = selectionCount();
-  const what = empty ? `Remove “${c.label}” from ${n} selected files?` : `Set “${c.label}” to ${display(value) || "this value"} in ${n} selected files?`;
-  void choose(what, [
+  void choose(change.question(n), [
     { label: `Apply to ${n} files`, value: "all", primary: true },
     { label: "Only this file", value: "one" },
   ]).then((answer) => {
     if (answer === "all") {
-      for (const r of result?.rows ?? []) if (isSelected(r.uri)) r.cells[c.id] = empty ? null : value;
+      for (const r of result?.rows ?? []) if (isSelected(r.uri)) change.show(r);
       // Confirmed here: the host does not ask a second time.
-      edit(selectionTarget(), [change], true);
+      edit(selectionTarget(), change.edits, true);
     } else if (answer === "one") {
-      row.cells[c.id] = empty ? null : value;
-      edit({ uris: [row.uri] }, [change]);
+      change.show(row);
+      edit({ uris: [row.uri] }, change.edits);
     }
     render();
   });
+}
+
+/** What a cell edit writes, how a row shows it at once, and what to ask before it goes to many files. */
+interface CellChange {
+  edits: UiEdit[];
+  show: (row: Row) => void;
+  question: (n: number) => string;
+}
+
+function valueChange(c: Column, value: unknown, asYaml: boolean): CellChange {
+  const empty = isEmptyValue(value);
+  return {
+    edits: [empty ? { kind: "delete", key: c.id } : asYaml ? { kind: "set", key: c.id, input: String(value) } : { kind: "setValue", key: c.id, value }],
+    show: (row) => (row.cells[c.id] = empty ? null : value),
+    question: (n) => (empty ? `Remove “${c.label}” from ${n} selected files?` : `Set “${c.label}” to ${display(value) || "this value"} in ${n} selected files?`),
+  };
+}
+
+/** file.tags: the tags added and removed, each on its own, so the other tags of each file stay. */
+function tagChange(before: unknown, after: unknown): CellChange | undefined {
+  const list = (v: unknown) => (Array.isArray(v) ? v : isEmptyValue(v) ? [] : [v]).map((t) => display(t).trim().replace(/^#/, "")).filter(Boolean);
+  const norm = (t: string) => t.toLowerCase();
+  const had = list(before).map(norm);
+  const wanted = list(after);
+  const added = wanted.filter((t, i) => !had.includes(norm(t)) && wanted.findIndex((u) => norm(u) === norm(t)) === i);
+  const removed = had.filter((t) => !wanted.some((u) => norm(u) === t));
+  if (added.length === 0 && removed.length === 0) return undefined;
+  return {
+    edits: [...added.map((tag): UiEdit => ({ kind: "addTag", tag })), ...removed.map((tag): UiEdit => ({ kind: "removeTag", tag }))],
+    show: (row) => {
+      const tags = list(row.cells["file.tags"]).map(norm).filter((t) => !removed.includes(t));
+      for (const t of added.map(norm)) if (!tags.includes(t)) tags.push(t);
+      row.cells["file.tags"] = tags;
+    },
+    question: (n) => `${[...added.map((t) => `Add tag “${t}”`), ...removed.map((t) => `remove tag “${t}”`)].join(", ").replace(/^r/, "R")} in ${n} selected files?`,
+  };
 }
 
 /** A small modal question; resolves to the chosen value, or undefined on Cancel or Escape. */
@@ -1491,6 +1579,7 @@ function table(): HTMLElement {
     dragColumn(th, c.id);
     head.append(th);
   }
+  head.append(el("th", { class: "add-column" }, iconButton("plus", undefined, () => propertyDialog(), "add-column-button", "Add property")));
 
   // Autocomplete: the values each editable column already holds.
   const lists = r.columns.map((c, ci) => el("datalist", { id: `sugg-${ci}` }, ...(c.suggestions ?? []).map((v) => el("option", { value: v }))));
@@ -1499,7 +1588,7 @@ function table(): HTMLElement {
   const at = new Map(rows.map((row, ri) => [row, ri]));
   for (const item of grouped(rows)) {
     if (item.kind === "heading") {
-      body.append(el("tr", { class: `group-row level-${item.level}` }, el("td", { colspan: String(r.columns.length + 1) }, headingLabel(item))));
+      body.append(el("tr", { class: `group-row level-${item.level}` }, el("td", { colspan: String(r.columns.length + 2) }, headingLabel(item))));
       continue;
     }
     const row = item.row;
@@ -1524,6 +1613,7 @@ function table(): HTMLElement {
       }
       tr.append(td);
     });
+    tr.append(el("td", { class: "add-column" }));
     body.append(tr);
   }
   return el("div", {}, ...lists, el("table", { class: `rh-${r.view.display.rowHeight}` }, el("thead", {}, head), body));
@@ -1827,6 +1917,7 @@ window.addEventListener("message", (event: MessageEvent<ToWebview>) => {
       rescopeSelection(msg.result);
       error = undefined;
       reconcileDrafts(msg.result);
+      applyNewTypes(msg.result);
       if (editing) {
         renderPending = true;
         return;

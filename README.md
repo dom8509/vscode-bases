@@ -54,6 +54,10 @@ at once.
   the formula, with completions for properties and functions (Tab or Enter
   takes one) and a line that says whether the formula is valid. The pencil
   next to a formula edits or renames it, or deletes it.
+- **New property:** the **+** at the right end of the table header (or
+  *Add property* in *Properties*) asks for a name and a type and adds the
+  column. The files get the property when you fill in a cell; until one
+  has a value, the column edits with the type you picked.
 - **Filter:** *This view* filters one view, *All views* the whole base. A
   filter is a property, an operator (is, contains, is empty, >, has tag, is
   in folder, …) and a value; groups combine filters with *all*, *any* or
@@ -76,6 +80,11 @@ at once.
   Clearing a value removes the property. A column's type comes from the
   values most of its files hold; `tags`, `aliases` and `cssclasses` are
   always lists.
+- **Tags:** the `file.tags` column is edited like a list: add a tag, or
+  remove one with × or Backspace. Each tag is added to or removed from
+  the file's `tags` (or `tag`) on its own, so the file's other tags stay as
+  they are, whatever their case or `#`. With several rows selected, the
+  added and removed tags go to every selected file.
 - **Edit many files at once:** tick rows, then change a cell in one of
   them: a short question asks whether the new value goes to every selected
   file or only to this one. That answer is the only one asked for.

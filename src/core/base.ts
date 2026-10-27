@@ -87,6 +87,8 @@ export interface Column {
   suggestions?: string[];
   /** The values are paths of files (file.links, file.backlinks): each opens its file. */
   links?: boolean;
+  /** file.tags: changed with addTag and removeTag, not set as a whole. */
+  tags?: boolean;
 }
 
 // Properties Obsidian treats as lists even before they hold a value.
@@ -416,6 +418,8 @@ export function computeView(base: BaseConfig, records: Iterable<FileRecord>, opt
 
   const columnOf = (ref: PropertyRef): Column => {
     if (ref.ns === "file" && /^(?:back)?links\b/.test(ref.name)) return { id: ref.id, label: label(base, ref), editable: false, type: "list", links: true };
+    // file.tags is the `tags` property: edited tag by tag, so `tag:` and `#tag` stay as each file writes them.
+    if (ref.id === "file.tags") return { id: ref.id, label: label(base, ref), editable: true, type: "list", tags: true, suggestions: suggestionsOf(hits.map((h) => h.rec.tags)) };
     if (ref.ns !== "note") return { id: ref.id, label: label(base, ref), editable: false, type: "text" };
     const values = hits.map((h) => h.rec.properties[ref.name]);
     return { id: ref.id, label: label(base, ref), editable: true, type: inferType(ref.name, values), suggestions: suggestionsOf(values) };
