@@ -209,7 +209,7 @@ export class WorkspaceIndex implements vscode.Disposable {
 
   private fromCache(key: string, entry: CacheEntry): FileRecord {
     const uri = vscode.Uri.parse(key);
-    return { uri: key, file: fileInfo(uri, entry), kind: entry.kind, properties: entry.properties, tags: entry.tags, readOnly: entry.readOnly };
+    return { uri: key, file: fileInfo(uri, entry), kind: entry.kind, properties: entry.properties, tags: entry.tags, readOnly: entry.readOnly, links: entry.links };
   }
 
   private async reset(): Promise<void> {
@@ -251,7 +251,7 @@ export class WorkspaceIndex implements vscode.Disposable {
       // Unsaved text is not what is on disk: the next start reads the file again.
       this.dropDisk(key);
     } else {
-      this.setDisk(key, { mtime: stat.mtime, ctime: stat.ctime, size: stat.size, kind: record.kind, properties: record.properties, tags: record.tags, readOnly: record.readOnly });
+      this.setDisk(key, { mtime: stat.mtime, ctime: stat.ctime, size: stat.size, kind: record.kind, properties: record.properties, tags: record.tags, readOnly: record.readOnly, links: record.links });
     }
   }
 

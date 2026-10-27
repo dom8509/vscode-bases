@@ -14,6 +14,8 @@ export interface FileRecord {
   tags: string[];
   /** Why the record cannot be edited; undefined when it can. */
   readOnly?: string;
+  /** What the links in the body of a Markdown file name, as written: `[[Note]]` gives "Note". */
+  links?: string[];
 }
 
 export function sourceKind(ext: string): SourceKind | undefined {
@@ -60,6 +62,33 @@ export function bodyText(text: string, kind: SourceKind): string {
   return rest.replace(/^(?:---|\.\.\.)[ \t]*\r?\n?/, "").replace(/^\s*\n/, "");
 }
 
+/**
+ * The links in the text of a note: `[[Note]]`, `![[Note]]`, `[[Note|alias]]`
+ * and `[text](path/note.md)`, each target once, in the order they first come.
+ * Code blocks and inline code are skipped, and so are web and mail links.
+ * `[[Note#heading]]` names the note; a link to a heading of the note itself
+ * is no link.
+ */
+export function bodyLinks(body: string): string[] {
+  const text = body.replace(/^(```|~~~)[^\n]*\n[\s\S]*?(?:^\1[^\n]*$|(?![\s\S]))/gm, "").replace(/`[^`\n]*`/g, "");
+  const found = new Set<string>();
+  const add = (raw: string) => {
+    const target = raw.replace(/[|#].*$/, "").trim();
+    if (target && !/^[a-z][a-z0-9+.-]*:/i.test(target)) found.add(target);
+  };
+  for (const m of text.matchAll(/!?\[\[([^\]\n]+)\]\]/g)) add(m[1]!);
+  for (const m of text.matchAll(/!?\[[^\]\n]*\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g)) {
+    let target = m[1]!;
+    try {
+      target = decodeURIComponent(target);
+    } catch {
+      // Not encoded: keep it as written.
+    }
+    add(target);
+  }
+  return [...found];
+}
+
 function tagsOf(properties: Record<string, unknown>): string[] {
   const raw = properties.tags ?? properties.tag;
   const list = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split(/[,\s]+/) : [];
@@ -72,6 +101,10 @@ export function parseRecord(uri: string, file: FileInfo, text: string): FileReco
   const kind = sourceKind(file.ext);
   if (!kind) return undefined;
   const base: FileRecord = { uri, file, kind, properties: {}, tags: [] };
+  if (kind === "markdown") {
+    const links = bodyLinks(bodyText(text, kind));
+    if (links.length) base.links = links;
+  }
   const region = yamlRegion(text, kind);
   if (!region.exists) return base;
   const yamlText = text.slice(region.start, region.end);
