@@ -30,7 +30,11 @@ export type BaseOp =
   /** Sets a formula; with expr undefined, removes it (and its column from every view). */
   | { op: "setFormula"; name: string; expr: string | undefined }
   /** Renames a formula in place, with its columns, sorts, groups and display name in every view. */
-  | { op: "renameFormula"; from: string; to: string };
+  | { op: "renameFormula"; from: string; to: string }
+  /** A property the files were renamed in: its columns, sorts, groups and display name follow, in every view. */
+  | { op: "renameProperty"; from: string; to: string }
+  /** A property removed from the files: its columns, sorts, groups and display name go too. */
+  | { op: "removeProperty"; name: string };
 
 function isEmptyValue(v: unknown): boolean {
   return v === undefined || v === null || (Array.isArray(v) && v.length === 0);
@@ -80,6 +84,47 @@ function setKey(doc: Document, map: YAMLMap, key: string, value: unknown, keyOrd
   const pair = doc.createPair(key, node);
   if (at < 0) map.items.push(pair as never);
   else map.items.splice(at, 0, pair as never);
+}
+
+function renameKey(doc: Document, map: YAMLMap, from: string, to: string): void {
+  const pair = map.items.find((p) => String((p.key as { value?: unknown })?.value ?? p.key) === from);
+  if (pair) pair.key = doc.createNode(to) as never;
+}
+
+/** Points every column, sort, group and display name of `from` at `to`. */
+function renameColumn(doc: Document, from: string, to: string): void {
+  const properties = (doc.contents as YAMLMap).get("properties", true);
+  if (isMap(properties)) renameKey(doc, properties, from, to);
+  for (const v of views(doc)) {
+    const order = v.get("order", true);
+    if (isSeq(order)) for (const n of order.items) if (isScalar(n) && n.value === from) n.value = to;
+    const sort = v.get("sort", true);
+    if (isSeq(sort)) for (const s of sort.items) if (isMap(s) && s.get("property") === from) s.set("property", to);
+    const groupBy = v.get("groupBy", true);
+    if (isMap(groupBy) && groupBy.get("property") === from) groupBy.set("property", to);
+    else if (isScalar(groupBy) && groupBy.value === from) groupBy.value = to;
+  }
+}
+
+/** Removes every column, sort, group and display name of `id`. */
+function removeColumn(doc: Document, id: string): void {
+  const root = doc.contents as YAMLMap;
+  const properties = root.get("properties", true);
+  if (isMap(properties)) {
+    properties.delete(id);
+    if (properties.items.length === 0) root.delete("properties");
+  }
+  for (const v of views(doc)) {
+    const order = v.get("order", true);
+    if (isSeq(order)) order.items = order.items.filter((n) => (n as { value?: unknown }).value !== id);
+    const sort = v.get("sort", true);
+    if (isSeq(sort)) {
+      sort.items = sort.items.filter((s) => !(isMap(s) && s.get("property") === id));
+      if (sort.items.length === 0) v.delete("sort");
+    }
+    const groupBy = v.get("groupBy", true);
+    if ((isMap(groupBy) && groupBy.get("property") === id) || (isScalar(groupBy) && groupBy.value === id)) v.delete("groupBy");
+  }
 }
 
 function apply(doc: Document, op: BaseOp): void {
@@ -151,26 +196,16 @@ function apply(doc: Document, op: BaseOp): void {
       const formulas = root.get("formulas", true);
       if (!isMap(formulas) || !formulas.has(op.from)) throw new Error(`No formula ${op.from}`);
       if (formulas.has(op.to)) throw new Error(`A formula ${op.to} already exists`);
-      const renameKey = (map: YAMLMap, from: string, to: string) => {
-        const pair = map.items.find((p) => String((p.key as { value?: unknown })?.value ?? p.key) === from);
-        if (pair) pair.key = doc.createNode(to) as never;
-      };
-      renameKey(formulas, op.from, op.to);
-      const from = `formula.${op.from}`;
-      const to = `formula.${op.to}`;
-      const properties = root.get("properties", true);
-      if (isMap(properties)) renameKey(properties, from, to);
-      for (const v of views(doc)) {
-        const order = v.get("order", true);
-        if (isSeq(order)) for (const n of order.items) if (isScalar(n) && n.value === from) n.value = to;
-        const sort = v.get("sort", true);
-        if (isSeq(sort)) for (const s of sort.items) if (isMap(s) && s.get("property") === from) s.set("property", to);
-        const groupBy = v.get("groupBy", true);
-        if (isMap(groupBy) && groupBy.get("property") === from) groupBy.set("property", to);
-        else if (isScalar(groupBy) && groupBy.value === from) groupBy.value = to;
-      }
+      renameKey(doc, formulas, op.from, op.to);
+      renameColumn(doc, `formula.${op.from}`, `formula.${op.to}`);
       return;
     }
+    case "renameProperty":
+      if (op.from !== op.to) renameColumn(doc, op.from, op.to);
+      return;
+    case "removeProperty":
+      removeColumn(doc, op.name);
+      return;
   }
 }
 

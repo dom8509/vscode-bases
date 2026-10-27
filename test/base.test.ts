@@ -352,3 +352,37 @@ describe("group levels", () => {
     expect(view("status").groupNested).toBe(false);
   });
 });
+
+describe("renaming and removing a property in the base", () => {
+  const text = `properties:
+  status:
+    displayName: Status
+views:
+  - type: table
+    name: A
+    groupBy:
+      property: status
+    order: [file.name, status, priority]
+    sort:
+      - property: status
+        direction: ASC
+  - type: table
+    name: B
+    order: [status]
+`;
+
+  it("points columns, sorts, groups and the display name at the new name", () => {
+    expect(updateBase(text, [{ op: "renameProperty", from: "status", to: "state" }])).toBe(text.replace(/\bstatus\b/g, "state"));
+  });
+
+  it("removes its columns, sorts, groups and display name", () => {
+    expect(updateBase(text, [{ op: "removeProperty", name: "status" }])).toBe(`views:
+  - type: table
+    name: A
+    order: [file.name, priority]
+  - type: table
+    name: B
+    order: []
+`);
+  });
+});
