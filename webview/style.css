@@ -1663,3 +1663,46 @@ input.slider {
   z-index: 50;
   min-width: 180px;
 }
+
+/* --- filters move by their grip ⋮⋮: a line shows where the dragged one lands --- */
+
+.filter-grip {
+  flex: none;
+  display: inline-flex;
+  align-self: center;
+  color: var(--vscode-descriptionForeground);
+  cursor: grab;
+  opacity: 0;
+}
+
+.filter-line.has-group > .filter-grip {
+  align-self: flex-start;
+  padding-top: 8px;
+}
+
+.filter-grip .svg-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.filter-line:hover > .filter-grip,
+.filter-grip:focus-visible {
+  opacity: 1;
+}
+
+.filter-line.dragging {
+  opacity: 0.5;
+}
+
+.filter-line.drop-before {
+  box-shadow: 0 -2px 0 var(--vscode-focusBorder);
+}
+
+.filter-line.drop-after {
+  box-shadow: 0 2px 0 var(--vscode-focusBorder);
+}
+
+.filter-group > .row.drop-end {
+  border-radius: 4px;
+  outline: 1px dashed var(--vscode-focusBorder);
+}

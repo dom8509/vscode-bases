@@ -8,6 +8,7 @@ import {
   CONJUNCTIONS,
   conditionExpr,
   fromModel,
+  moveFilter,
   OPERATORS,
   type Conjunction,
   type FilterGroup,
@@ -658,13 +659,19 @@ function filterNode(scope: FilterScope, node: FilterNode, path: number[], depth:
     if (depth > 0) head.append(iconButton("x", undefined, () => updateFilter(scope, path, () => null), "", "Remove group"));
     return el("div", { class: depth > 0 ? "filter-group nested" : "filter-group" },
       head,
-      ...node.children.map((c, i) => el("div", { class: c.kind === "group" ? "filter-line has-group" : "filter-line" },
-        el("span", { class: "conj-word" }, linkWord(node.conj, i)),
-        filterNode(scope, c, [...path, i], depth + 1))),
-      el("div", { class: "row" },
+      ...node.children.map((c, i) => {
+        const line = el("div", { class: c.kind === "group" ? "filter-line has-group" : "filter-line" });
+        line.append(
+          filterGrip(scope, [...path, i], line),
+          el("span", { class: "conj-word" }, linkWord(node.conj, i)),
+          filterNode(scope, c, [...path, i], depth + 1),
+        );
+        return dropOnFilter(line, scope, path, i);
+      }),
+      dropOnFilter(el("div", { class: "row" },
         iconButton("plus", "Add filter", () => updateFilter(scope, path, (n) => ({ ...(n as FilterGroup), children: [...(n as FilterGroup).children, { kind: "cond", property: "file.name", op: "contains", value: "" }] })), "add"),
         iconButton("plus", "Add filter group", () => updateFilter(scope, path, (n) => ({ ...(n as FilterGroup), children: [...(n as FilterGroup).children, { kind: "group", conj: "and", children: [] }] })), "add"),
-      ),
+      ), scope, path, node.children.length),
     );
   }
   if (node.kind === "expr") {
@@ -690,6 +697,76 @@ function filterNode(scope: FilterScope, node: FilterNode, path: number[], depth:
     iconButton("x", undefined, () => updateFilter(scope, path, () => null), "", "Remove filter"),
   );
   return row;
+}
+
+// Filters move by dragging their grip: within a group, or into another group of the same section.
+let draggedFilter: { scope: FilterScope; path: number[] } | undefined;
+let filterDropMark: HTMLElement | undefined;
+
+function markFilterDrop(target?: HTMLElement, cls?: string): void {
+  filterDropMark?.classList.remove("drop-before", "drop-after", "drop-end");
+  filterDropMark = target;
+  if (target && cls) target.classList.add(cls);
+}
+
+/** The grip ⋮⋮ that drags the filter at `path`; `line` is what moves with the pointer. */
+function filterGrip(scope: FilterScope, path: number[], line: HTMLElement): HTMLElement {
+  const grip = el("span", { class: "filter-grip", draggable: "true", title: "Drag to move" }, icon("grip"));
+  grip.ondragstart = (e) => {
+    draggedFilter = { scope, path };
+    e.dataTransfer?.setData("application/x-bases-filter", path.join("."));
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer?.setDragImage(line, 12, 12);
+    e.stopPropagation();
+    requestAnimationFrame(() => line.classList.add("dragging"));
+  };
+  grip.ondragend = () => {
+    line.classList.remove("dragging");
+    draggedFilter = undefined;
+    markFilterDrop();
+  };
+  return grip;
+}
+
+/**
+ * Dropping on a filter puts the dragged one before or after it, by which half the pointer is in;
+ * dropping on a group's "Add" row puts it at the end of that group. `index` is the place in the group at `into`.
+ */
+function dropOnFilter(target: HTMLElement, scope: FilterScope, into: number[], index: number): HTMLElement {
+  const isEnd = index === currentFilterAt(scope, into)?.children.length;
+  const after = (e: DragEvent) => {
+    if (isEnd) return 0;
+    const box = target.getBoundingClientRect();
+    return e.clientY < box.top + box.height / 2 ? 0 : 1;
+  };
+  target.addEventListener("dragover", (e) => {
+    if (!draggedFilter || draggedFilter.scope !== scope) return;
+    const from = draggedFilter.path;
+    // A group never goes into itself.
+    if (into.length >= from.length && from.every((i, k) => into[k] === i)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    markFilterDrop(target, isEnd ? "drop-end" : after(e) ? "drop-after" : "drop-before");
+  });
+  target.addEventListener("dragleave", (e) => {
+    if (filterDropMark === target && !target.contains(e.relatedTarget as Node)) markFilterDrop();
+  });
+  target.addEventListener("drop", (e) => {
+    if (!draggedFilter || draggedFilter.scope !== scope) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const next = moveFilter(currentFilter(scope), draggedFilter.path, into, index + after(e));
+    draggedFilter = undefined;
+    markFilterDrop();
+    if (next && JSON.stringify(next) !== JSON.stringify(currentFilter(scope))) writeFilter(scope, next);
+  });
+  return target;
+}
+
+function currentFilterAt(scope: FilterScope, path: number[]): FilterGroup | undefined {
+  let node: FilterNode | undefined = currentFilter(scope);
+  for (const i of path) node = node?.kind === "group" ? node.children[i] : undefined;
+  return node?.kind === "group" ? node : undefined;
 }
 
 function filterPanel(): HTMLElement {
