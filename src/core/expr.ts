@@ -218,7 +218,47 @@ export function compare(a: unknown, b: unknown): number | undefined {
   if (b instanceof Date) b = b.getTime();
   if (typeof a === "number" && typeof b === "number") return a - b;
   if (typeof a === "boolean" && typeof b === "boolean") return Number(a) - Number(b);
-  return String(a).localeCompare(String(b), undefined, { numeric: true });
+  return naturalCompare(String(a), String(b));
+}
+
+// A run of numbers joined by "." or "-", such as the chapter number "2.3.0-7.0-1".
+const NUMBER_RUN = /\d+(?:[.-]\d+)*/g;
+
+/**
+ * Text order with numbers read as numbers. Number runs compare part by part,
+ * so a chapter sorts before its sub-chapters: 2.3.0-7 < 2.3.0-7.0-1 < 2.3.0-10 < 2.3.0-11.0-1 < 2.3.0-11.0-11.
+ */
+export function naturalCompare(a: string, b: string): number {
+  const x = tokens(a);
+  const y = tokens(b);
+  for (let i = 0; i < Math.min(x.length, y.length); i++) {
+    const p = x[i]!;
+    const q = y[i]!;
+    let d: number;
+    if (typeof p !== "string" && typeof q !== "string") {
+      d = 0;
+      for (let j = 0; j < Math.min(p.length, q.length) && d === 0; j++) d = p[j]! - q[j]!;
+      if (d === 0) d = p.length - q.length;
+    } else {
+      // A number before text, as localeCompare puts digits before letters.
+      d = typeof p !== "string" ? -1 : typeof q !== "string" ? 1 : p.localeCompare(q, undefined, { numeric: true, sensitivity: "base" });
+    }
+    if (d !== 0) return d;
+  }
+  return x.length - y.length || a.localeCompare(b, undefined, { numeric: true });
+}
+
+/** "2.3.0-7 Intro" → [[2, 3, 0, 7], " Intro"]. */
+function tokens(s: string): (number[] | string)[] {
+  const out: (number[] | string)[] = [];
+  let at = 0;
+  for (const m of s.matchAll(NUMBER_RUN)) {
+    if (m.index > at) out.push(s.slice(at, m.index));
+    out.push(m[0].split(/[.-]/).map(Number));
+    at = m.index + m[0].length;
+  }
+  if (at < s.length) out.push(s.slice(at));
+  return out;
 }
 
 const DURATION_UNITS: Record<string, number> = {
