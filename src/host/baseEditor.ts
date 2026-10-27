@@ -274,6 +274,32 @@ export class BaseEditorProvider implements vscode.CustomTextEditorProvider {
           case "newNote":
             await this.createNote(document, ui.viewIndex, post);
             break;
+          case "renameProperty":
+          case "deleteProperty": {
+            // Only the files of the view that have the property; the others stay as they are.
+            const key = msg.type === "renameProperty" ? msg.from : msg.name;
+            const records = new Map([...this.index.all()].map((r) => [r.uri, r]));
+            const uris = (await resolveTarget({ allMatching: true, except: [] })).filter((u) => {
+              const rec = records.get(u.toString());
+              return rec !== undefined && Object.prototype.hasOwnProperty.call(rec.properties, key);
+            });
+            const edit: PropertyEdit = msg.type === "renameProperty" ? { kind: "rename", from: msg.from, to: msg.to } : { kind: "delete", key: msg.name };
+            const confirm = vscode.workspace.getConfiguration("bases").get<boolean>("confirmBulkEdits", true);
+            // Deleting asks even for one file: the values are gone after it.
+            const outcome = uris.length > 0 ? await applyPropertyEdits(uris, [edit], { confirm, confirmOne: msg.type === "deleteProperty" }) : undefined;
+            if (outcome) {
+              for (const f of outcome.failures) this.log.warn(`Not changed: ${f}`);
+              if (outcome.failures.length > 0) void vscode.window.showWarningMessage(`${outcome.failures.length} file(s) not changed: ${outcome.failures.slice(0, 3).join("; ")}${outcome.failures.length > 3 ? " … (all in the Bases output)" : ""}`);
+              // Cancelled, or no file could take it: the base stays as it is.
+              if (!outcome.applied) {
+                scheduleRender();
+                break;
+              }
+              post({ type: "notice", message: `${outcome.changed} file(s) changed` });
+            }
+            await applyBaseOps([msg.type === "renameProperty" ? { op: "renameProperty", from: msg.from, to: msg.to } : { op: "removeProperty", name: msg.name }]);
+            break;
+          }
           case "export": {
             const all = computeView(parseBase(document.getText()), this.index.all(), { ...ui, page: 0, pageSize: Number.MAX_SAFE_INTEGER, thisFile: await thisFile(), links: this.links.links(), bodies: await this.bodies(document.getText()) });
             const files = `${all.rows.length} ${all.rows.length === 1 ? "row" : "rows"}`;
