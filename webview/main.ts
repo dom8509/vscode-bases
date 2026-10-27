@@ -906,6 +906,78 @@ function applyNewTypes(r: ViewResult): void {
   }
 }
 
+// --- the right-click menu of a column ----------------------------------------------
+
+let contextMenu: HTMLElement | undefined;
+
+function closeContextMenu(): void {
+  contextMenu?.remove();
+  contextMenu = undefined;
+}
+
+/** Rename or delete a property of the files: right-click on its column header. */
+function columnMenu(e: MouseEvent, c: Column): void {
+  e.preventDefault();
+  closeContextMenu();
+  const item = (name: IconName, label: string, run: () => void, danger = false) => {
+    const it = el("div", { class: `view-item${danger ? " danger" : ""}`, role: "menuitem", tabindex: "0" }, el("span", { class: "view-icon" }, icon(name)), el("span", { class: "view-label" }, label));
+    it.onclick = () => {
+      closeContextMenu();
+      run();
+    };
+    it.onkeydown = (k) => {
+      if (k.key === "Enter") it.click();
+    };
+    return it;
+  };
+  contextMenu = el("div", { class: "view-menu context-menu", role: "menu" },
+    item("pencil", "Rename property…", () => renamePropertyDialog(c)),
+    item("trash", "Delete property", () => send({ type: "deleteProperty", name: c.id }), true),
+  );
+  contextMenu.onmousedown = (m) => m.stopPropagation();
+  contextMenu.onkeydown = (k) => {
+    if (k.key === "Escape") {
+      k.preventDefault();
+      k.stopPropagation();
+      closeContextMenu();
+    }
+  };
+  // Outside #app, so a render underneath leaves it alone.
+  document.body.append(contextMenu);
+  const margin = 8;
+  contextMenu.style.left = `${Math.max(margin, Math.min(e.clientX, window.innerWidth - margin - contextMenu.offsetWidth))}px`;
+  contextMenu.style.top = `${Math.max(margin, Math.min(e.clientY, window.innerHeight - margin - contextMenu.offsetHeight))}px`;
+  contextMenu.querySelector<HTMLElement>(".view-item")?.focus();
+}
+
+document.addEventListener("mousedown", closeContextMenu);
+document.addEventListener("scroll", closeContextMenu, true);
+window.addEventListener("blur", closeContextMenu);
+
+/** Renames a property in the files of the view that have it; the base's columns follow. */
+function renamePropertyDialog(c: Column): void {
+  const r = result!;
+  editDialog({
+    title: `Rename “${c.id}”`,
+    fields: [{ label: "New name", value: c.id, hint: "Only the files of this view that have the property change." }],
+    check: ([name]) => {
+      if (!name) return "Enter a name";
+      if (name === c.id) return "Enter a new name";
+      if (/^(?:file|formula)\./.test(name)) return "Names starting with file. or formula. are taken";
+      if (r.propertyNames.includes(name) || r.view.order.includes(name)) return "A property with this name exists";
+      return undefined;
+    },
+    save: ([name]) => {
+      const type = newTypes.get(c.id);
+      if (type) {
+        newTypes.delete(c.id);
+        newTypes.set(name!, type);
+      }
+      send({ type: "renameProperty", from: c.id, to: name! });
+    },
+  });
+}
+
 /** Adds a column for a property, new or one the files already have, to the view. */
 function propertyDialog(): void {
   const r = result!;
@@ -1576,6 +1648,7 @@ function table(): HTMLElement {
     const sorted = sort && sort.property === c.id;
     const th = el("th", { title: `${c.id} — click to sort` }, el("span", { class: "th-label" }, c.label), ...(sorted ? [icon(sort.direction === "DESC" ? "arrowDown" : "arrowUp", "sort-arrow")] : []));
     th.onclick = () => ops({ op: "setView", index: r.viewIndex, key: "sort", value: nextSort(c.id) });
+    if (c.editable && !c.tags) th.oncontextmenu = (e) => columnMenu(e, c);
     dragColumn(th, c.id);
     head.append(th);
   }

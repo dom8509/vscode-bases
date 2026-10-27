@@ -49,6 +49,12 @@ export type FromWebview =
   /** Every result of the view as it is now (all pages), to the clipboard or a CSV file. */
   | { type: "export"; to: "clipboard" | "csv" | "xlsx" | "markdown" | "html" }
   /** "+ New": a note with the values the view's filters ask for. */
-  | { type: "newNote" };
+  | { type: "newNote" }
+  /**
+   * Renames or deletes a property in the files of the view that have it,
+   * then makes the base's columns, sorts and groups follow.
+   */
+  | { type: "renameProperty"; from: string; to: string }
+  | { type: "deleteProperty"; name: string };
 
 export type { BaseOp, PropertyEdit, SortSpec, ViewResult };

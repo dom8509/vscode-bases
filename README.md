@@ -58,6 +58,11 @@ at once.
   *Add property* in *Properties*) asks for a name and a type and adds the
   column. The files get the property when you fill in a cell; until one
   has a value, the column edits with the type you picked.
+- **Rename or delete a property:** right-click a column header. *Rename
+  property…* renames it, and *Delete property* removes it, in the files of
+  the view that have it; files without it stay as they are. The view's
+  columns, sorts and groups follow (all views of the base). Deleting
+  always asks first; renaming asks when more than one file changes.
 - **Filter:** *This view* filters one view, *All views* the whole base. A
   filter is a property, an operator (is, contains, is empty, >, has tag, is
   in folder, …) and a value; groups combine filters with *all*, *any* or

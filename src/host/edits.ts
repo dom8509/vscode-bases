@@ -156,8 +156,8 @@ const result = (p: Planned) => p.before.slice(0, p.change.start) + p.change.text
  * Applies the edits to the files. With `confirm`, an edit to more than one
  * file asks first. Edits run one at a time.
  */
-export function applyPropertyEdits(uris: vscode.Uri[], edits: PropertyEdit[], opts: { confirm?: boolean } = {}): Promise<EditOutcome> {
-  return enqueue(() => run(uris, edits, opts.confirm === true && uris.length > 1));
+export function applyPropertyEdits(uris: vscode.Uri[], edits: PropertyEdit[], opts: { confirm?: boolean; confirmOne?: boolean } = {}): Promise<EditOutcome> {
+  return enqueue(() => run(uris, edits, opts.confirmOne === true || (opts.confirm === true && uris.length > 1)));
 }
 
 // --- files no editor holds: read and written directly -----------------------------

@@ -1655,3 +1655,11 @@ input.slider {
   color: var(--vscode-descriptionForeground);
   font-variant-numeric: tabular-nums;
 }
+
+/* The right-click menu of a column header, where the mouse is. */
+.view-menu.context-menu {
+  position: fixed;
+  top: 0;
+  z-index: 50;
+  min-width: 180px;
+}
