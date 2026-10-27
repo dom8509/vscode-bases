@@ -43,7 +43,15 @@ jobs:
       - name: Package .vsix
         run: npx vsce package --out "vscode-bases-${GITHUB_REF_NAME}.vsix"
 
+      # A release made by hand on GitHub (which also makes the tag) gets the .vsix added.
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" "vscode-bases-${GITHUB_REF_NAME}.vsix" --title "$GITHUB_REF_NAME" --generate-notes
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "vscode-bases-${GITHUB_REF_NAME}.vsix" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "vscode-bases-${GITHUB_REF_NAME}.vsix" \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes
+          fi
