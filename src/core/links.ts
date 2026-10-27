@@ -86,6 +86,30 @@ export function makeResolver(paths: Iterable<string>, dbFolder: string, toRelati
   };
 }
 
+/**
+ * Finds the workspace file a link in a note names, or undefined when none
+ * does. Tried in this order: the path from the workspace folder, from the
+ * note's folder, the same with `.md`, then a file of that name anywhere
+ * (when only one has it), as Obsidian does for `[[Note]]`.
+ */
+export function makeNoteLinkResolver(paths: Iterable<string>): (fromFolder: string, raw: string) => string | undefined {
+  const known = new Set<string>();
+  const byName = new Map<string, string | null>();
+  const addName = (name: string, path: string) => byName.set(name, byName.has(name) && byName.get(name) !== path ? null : path);
+  for (const p of paths) {
+    known.add(p);
+    const name = p.split("/").pop()!.toLowerCase();
+    addName(name, p);
+    const dot = name.lastIndexOf(".");
+    if (dot > 0) addName(name.slice(0, dot), p);
+  }
+  return (fromFolder, raw) => {
+    const v = raw.replace(/\\/g, "/").trim();
+    const candidates = [normalize(v), normalize(`${fromFolder}/${v}`)];
+    return [...candidates, ...candidates.map((c) => `${c}.md`)].find((c) => known.has(c)) ?? byName.get(v.split("/").pop()!.toLowerCase()) ?? undefined;
+  };
+}
+
 /** The links of every file, both ways, with the paths resolved. */
 export class LinkGraph {
   private readonly out = new Map<string, LinkRow[]>();
@@ -102,6 +126,11 @@ export class LinkGraph {
       if (r.type) types.add(r.type);
     }
     this.types = [...types].sort((a, b) => a.localeCompare(b));
+  }
+
+  /** The links that start at `path`, with their types. */
+  outgoing(path: string): readonly LinkRow[] {
+    return this.out.get(path) ?? [];
   }
 
   /** The files `path` links to; only links of these types, when there are any. */

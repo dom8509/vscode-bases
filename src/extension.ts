@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { NEW_BASE } from "./core/baseEdit";
+import { createApi, type BasesApi } from "./host/api";
 import { BaseEditorProvider, reopenWith, VIEW_TYPE } from "./host/baseEditor";
 import { registerPreviewProvider } from "./host/edits";
 import { WorkspaceIndex } from "./host/indexer";
@@ -7,7 +8,7 @@ import { LinkSource } from "./host/links";
 
 let index: WorkspaceIndex | undefined;
 
-export function activate(context: vscode.ExtensionContext): void {
+export function activate(context: vscode.ExtensionContext): BasesApi {
   const log = vscode.window.createOutputChannel("Bases", { log: true });
   index = new WorkspaceIndex(context.storageUri, log);
   // Activated because the workspace has a .base file: index now, so the first
@@ -37,6 +38,7 @@ export function activate(context: vscode.ExtensionContext): void {
       if (uri) await reopenWith(uri, VIEW_TYPE);
     }),
   );
+  return createApi(index, links);
 }
 
 function activeBaseUri(): vscode.Uri | undefined {

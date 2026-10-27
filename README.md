@@ -288,6 +288,25 @@ Measured with 20,000 notes (`npm run test:perf`):
 
 To index less, narrow `bases.include` or add folders to `bases.exclude`.
 
+## For other extensions
+
+Bases shares its index: another extension reads the same notes from the same
+cache instead of indexing the workspace again. [BrainMap](https://github.com/dom8509/vscode-brainmap)
+draws its `.brainview` graphs from it.
+
+```ts
+const bases = vscode.extensions.getExtension("dom8509.vscode-bases");
+const api = await bases.activate(); // BasesApi, see src/host/api.ts
+await api.ready();
+for (const file of api.files()) console.log(file.path, file.properties, file.links);
+api.onDidChange(() => { /* read api.files() again */ });
+```
+
+Each file comes with its properties, tags and links: the `[[wikilinks]]`,
+embeds and `[text](note.md)` links in its text (type `""`), then the links of
+the [link database](#links-from-a-database) with their types. Links are
+resolved to workspace paths; a link to no file of the index is left out.
+
 ## Settings
 
 | Setting | Default | |

@@ -12,7 +12,7 @@
 import type { SourceKind } from "./record";
 
 /** Bump when parseRecord changes what it produces, so old caches are dropped. */
-export const CACHE_VERSION = 2;
+export const CACHE_VERSION = 3;
 
 export interface CacheEntry {
   mtime: number;
@@ -22,6 +22,7 @@ export interface CacheEntry {
   properties: Record<string, unknown>;
   tags: string[];
   readOnly?: string;
+  links?: string[];
 }
 
 export interface Snapshot {
